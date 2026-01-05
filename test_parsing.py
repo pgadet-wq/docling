@@ -1,13 +1,46 @@
 #!/usr/bin/env python3
-"""Script de test pour parser le PDF MMEL avec Docling."""
+"""Script de test pour parser le PDF MMEL avec pypdfium2 (sans modèles ML)."""
 
-from docling.document_converter import DocumentConverter
+import pypdfium2 as pdfium
 import os
 
 # Configuration
 PDF_DIR = "data/mmel/"
 OUTPUT_DIR = "output/parsed"
 OUTPUT_FILE = "mmel_pc12_raw.md"
+
+def extract_text_from_pdf(pdf_path):
+    """Extrait le texte de toutes les pages d'un PDF."""
+    pdf = pdfium.PdfDocument(pdf_path)
+    all_text = []
+    num_pages = len(pdf)
+
+    for page_num in range(num_pages):
+        page = pdf[page_num]
+        textpage = page.get_textpage()
+        text = textpage.get_text_range()
+        all_text.append(f"\n\n## Page {page_num + 1}\n\n{text}")
+        textpage.close()
+        page.close()
+
+    pdf.close()
+    return num_pages, "\n".join(all_text)
+
+def extract_pages_range(pdf_path, start_page, end_page):
+    """Extrait le texte d'une plage de pages spécifique."""
+    pdf = pdfium.PdfDocument(pdf_path)
+    pages_text = []
+
+    for page_num in range(start_page - 1, min(end_page, len(pdf))):
+        page = pdf[page_num]
+        textpage = page.get_textpage()
+        text = textpage.get_text_range()
+        pages_text.append(f"\n--- PAGE {page_num + 1} ---\n{text}")
+        textpage.close()
+        page.close()
+
+    pdf.close()
+    return "\n".join(pages_text)
 
 def main():
     # Vérifier que le répertoire existe
@@ -29,13 +62,12 @@ def main():
     print(f"Chemin complet: {pdf_path}")
     print("=" * 60)
 
-    # Parser avec Docling
-    print("Parsing en cours avec Docling...")
-    converter = DocumentConverter()
-    result = converter.convert(pdf_path)
+    # Parser avec pypdfium2 (sans modèles ML)
+    print("Parsing en cours avec pypdfium2...")
+    num_pages, md_content = extract_text_from_pdf(pdf_path)
 
-    # Export markdown
-    md_content = result.document.export_to_markdown()
+    # Ajouter un header markdown
+    md_content = f"# MMEL PC-12 - Extraction PDF\n\nSource: {pdf_files[0]}\n{md_content}"
 
     # Créer le répertoire de sortie
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -47,7 +79,6 @@ def main():
 
     # Statistiques
     lines = md_content.split("\n")
-    num_pages = len(result.document.pages) if hasattr(result.document, 'pages') else "N/A"
 
     print("=" * 60)
     print("STATISTIQUES:")
@@ -67,36 +98,8 @@ def main():
     print("\n" + "=" * 60)
     print("CONTENU PAGES 29-32 (début ATA chapitre 21):")
     print("=" * 60)
-
-    # Méthode 1: Si le document a des pages accessibles
-    if hasattr(result.document, 'pages') and result.document.pages:
-        pages = result.document.pages
-        for page_num in range(28, min(32, len(pages))):  # 0-indexed, donc 28-31 pour pages 29-32
-            if page_num < len(pages):
-                page = pages[page_num]
-                print(f"\n--- PAGE {page_num + 1} ---")
-                # Essayer d'extraire le texte de la page
-                if hasattr(page, 'export_to_markdown'):
-                    print(page.export_to_markdown())
-                elif hasattr(page, 'text'):
-                    print(page.text)
-                else:
-                    print(f"[Structure page: {type(page)}]")
-    else:
-        # Méthode alternative: chercher des marqueurs dans le markdown
-        print("\nRecherche de marqueurs 'ATA 21' ou 'Chapter 21' dans le contenu...")
-        for i, line in enumerate(lines):
-            if 'ATA 21' in line.upper() or 'CHAPTER 21' in line.upper() or '21-' in line:
-                start = max(0, i - 2)
-                end = min(len(lines), i + 20)
-                print(f"\nTrouvé à la ligne {i + 1}:")
-                print("\n".join(lines[start:end]))
-                print("...")
-                break
-        else:
-            # Afficher une portion approximative (pages 29-32 ~ lignes 700-900 pour un doc standard)
-            print("\nExtrait approximatif (lignes 700-900):")
-            print("\n".join(lines[700:900]) if len(lines) > 900 else "\n".join(lines[700:]))
+    pages_29_32 = extract_pages_range(pdf_path, 29, 32)
+    print(pages_29_32)
 
 if __name__ == "__main__":
     main()
