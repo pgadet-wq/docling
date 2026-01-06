@@ -167,6 +167,90 @@ async def get_non_compliant_items(report_id: str):
     return data
 
 
+@router.post("/quick")
+async def quick_audit():
+    """
+    Quick audit using already-parsed files in output/parsed/.
+
+    Automatically finds the latest MMEL and MEL JSON files and runs the audit.
+    No need to specify file paths.
+
+    Returns:
+        Audit results with compliance score and summary
+    """
+    import glob
+    from datetime import datetime
+
+    parsed_dir = "output/parsed"
+
+    # Find latest MMEL file
+    mmel_files = glob.glob(os.path.join(parsed_dir, "mmel_*_structured.json"))
+    if not mmel_files:
+        raise HTTPException(
+            status_code=404,
+            detail="No parsed MMEL files found. Run POST /api/v1/parse/all first."
+        )
+    mmel_file = max(mmel_files, key=os.path.getmtime)
+
+    # Find latest MEL file
+    mel_files = glob.glob(os.path.join(parsed_dir, "mel_*_structured.json"))
+    if not mel_files:
+        raise HTTPException(
+            status_code=404,
+            detail="No parsed MEL files found. Run POST /api/v1/parse/all first."
+        )
+    mel_file = max(mel_files, key=os.path.getmtime)
+
+    # Generate report ID
+    report_id = str(uuid.uuid4())[:8]
+
+    # Output paths
+    os.makedirs(AUDIT_OUTPUT_DIR, exist_ok=True)
+    json_report = os.path.join(AUDIT_OUTPUT_DIR, f"audit_{report_id}.json")
+    md_report = os.path.join(AUDIT_OUTPUT_DIR, f"audit_{report_id}.md")
+    non_compliant_report = os.path.join(AUDIT_OUTPUT_DIR, f"non_compliant_{report_id}.json")
+
+    try:
+        from mmel_tool.audit.comparator import MelMmelComparator
+
+        comparator = MelMmelComparator(mmel_file, mel_file)
+        comparator.run_audit()
+
+        # Generate reports
+        comparator.generate_json_report(json_report)
+        comparator.generate_markdown_report(md_report)
+        comparator.generate_non_compliant_json(non_compliant_report)
+
+        summary = AuditSummary(
+            total_mmel_items=comparator.summary.total_mmel_items,
+            total_mel_items=comparator.summary.total_mel_items,
+            compliant=comparator.summary.compliant,
+            more_restrictive=comparator.summary.more_restrictive,
+            non_compliant=comparator.summary.non_compliant,
+            missing_in_mel=comparator.summary.missing_in_mel,
+            extra_in_mel=comparator.summary.extra_in_mel,
+            compliance_score=comparator.summary.compliance_score,
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audit failed: {str(e)}")
+
+    return AuditResponse(
+        status="success",
+        report_id=report_id,
+        compliance_score=summary.compliance_score,
+        summary=summary,
+        message=f"Quick audit complete. Used {os.path.basename(mmel_file)} vs {os.path.basename(mel_file)}. Score: {summary.compliance_score:.1f}%",
+        report_files={
+            "json": json_report,
+            "markdown": md_report,
+            "non_compliant": non_compliant_report,
+            "mmel_used": mmel_file,
+            "mel_used": mel_file,
+        }
+    )
+
+
 @router.get("/reports/list")
 async def list_audit_reports():
     """List all audit reports."""
