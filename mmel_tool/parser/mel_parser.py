@@ -54,6 +54,9 @@ class MelParser:
 
     def preprocess_content(self, content: str, debug: bool = False) -> str:
         """Remove page markers, headers, and footers before parsing."""
+        # First: collapse multiple newlines/empty lines into single newline
+        content = re.sub(r'\n\s*\n+', '\n', content)
+
         lines = content.split('\n')
         cleaned_lines = []
         removed_lines = []
