@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .routes import upload_router, parse_router, audit_router, reports_router
+from .routes import upload_router, parse_router, audit_router, reports_router, chat_router
 from .models.schemas import HealthResponse, ErrorResponse
 
 # Configure logging
@@ -108,6 +108,7 @@ app.include_router(upload_router, prefix="/api/v1")
 app.include_router(parse_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")
 
 
 # Health check endpoint
