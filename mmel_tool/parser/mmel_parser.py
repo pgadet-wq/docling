@@ -94,6 +94,90 @@ class MmelParser:
 
         return '\n'.join(cleaned_lines)
 
+    def _join_split_lines(self, content: str) -> str:
+        """Join lines that are continuations of item definitions."""
+        lines = content.split('\n')
+        joined_lines = []
+        i = 0
+
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+
+            # Check if this looks like an item start with letter suffix
+            # Pattern: XX-XX-XX[A-Z] (OP_TYPE) (MSN...
+            item_start = re.match(
+                r'^(\d{2}-\d{2}-\d{2}(?:-\d+)?[A-Z])\s+\(([A-Z/]+)\)\s*(\(MSN[^)]*)?$',
+                stripped
+            )
+
+            if item_start:
+                # This line starts an item but might be incomplete
+                combined = stripped
+                j = i + 1
+
+                # Look for continuation lines until we find the interval line
+                while j < len(lines):
+                    next_line = lines[j].strip()
+
+                    # Check if this is the interval/values line
+                    # Pattern: [ABCD-] N N (M)?(O)? ... (numbers can be -)
+                    if re.match(r'^[ABCD-]\s+[\d-]+\s+[\d-]+', next_line):
+                        combined += ' ' + next_line
+                        i = j
+                        break
+
+                    # Check if it's "and up)" or similar MSN continuation
+                    if re.match(r'^and\s+up\)?', next_line):
+                        combined += ' ' + next_line
+                        j += 1
+                        continue
+
+                    # Check if it's a continuation of MSN effectivity
+                    # Pattern: numbers, hyphens, "and up", closing paren
+                    if re.match(r'^[\d\s,\-]+(?:and\s+up)?\)?', next_line):
+                        combined += ' ' + next_line
+                        j += 1
+                        continue
+
+                    # Check if it's a closing paren or similar continuation
+                    if re.match(r'^\d+\s*-\s*\d+\)?', next_line):
+                        combined += ' ' + next_line
+                        j += 1
+                        continue
+
+                    # If nothing matches, break
+                    break
+
+                # Clean up the combined line
+                combined = re.sub(r'\s+', ' ', combined)
+                joined_lines.append(combined)
+                i += 1
+                continue
+
+            # Also handle lines that are just the interval/values without item code
+            # These might need to be joined with previous line
+            if re.match(r'^[ABCD-]\s+[\d-]+\s+[\d-]+', stripped):
+                if joined_lines:
+                    last = joined_lines[-1].strip()
+                    # Check if last line looks like incomplete item
+                    if re.match(r'.*\(MSN[^)]*$', last) or last.endswith(','):
+                        joined_lines[-1] = last + ' ' + stripped
+                        i += 1
+                        continue
+
+            # Handle "and up)" on its own line - join to previous
+            if re.match(r'^and\s+up\)?', stripped):
+                if joined_lines:
+                    joined_lines[-1] = joined_lines[-1].rstrip() + ' ' + stripped
+                    i += 1
+                    continue
+
+            joined_lines.append(line)
+            i += 1
+
+        return '\n'.join(joined_lines)
+
     def parse(self) -> List[Dict[str, Any]]:
         """Parse the MMEL markdown file and return structured data."""
         with open(self.input_file, 'r', encoding='utf-8') as f:
@@ -101,6 +185,9 @@ class MmelParser:
 
         # Pre-process content
         content = self.preprocess_content(content)
+
+        # Join split lines (multi-line items)
+        content = self._join_split_lines(content)
 
         # Current context
         current_ata_chapter = ""
@@ -120,13 +207,25 @@ class MmelParser:
         )
 
         # Sub-item pattern: XX-XX-XX[A-Z] with operation type and details
+        # More flexible to handle joined multi-line items
         sub_item_pattern = re.compile(
             r'^(\d{2}-\d{2}-\d{2}(?:-\d+)?[A-Z])\s+'  # Item code with letter
-            r'(?:\(([A-Z/]+)\)\s*)?'  # Operation type
-            r'(?:\((MSN[^)]+)\)\s*)?'  # MSN effectivity
+            r'(?:\(?([A-Z/]+)\)?\s*)?'  # Operation type (optional, parens optional)
+            r'(?:\(?(MSN[^)]*)\)?\s*)?'  # MSN effectivity (more flexible)
             r'([ABCD-])\s+'  # Rectification interval
-            r'([\d-]+)\s+'  # Number installed
-            r'(\d+)\s*'  # Number required
+            r'([\d-]+)\s+'  # Number installed (can be - for "any")
+            r'([\d-]+)\s*'  # Number required (can be - for "any")
+            r'(\(M\))?\s*(\(O\))?\s*'  # Flags
+            r'(.*)$'  # Remarks
+        )
+
+        # Sub-item pattern with sub-title (e.g., "23-60-01-1A Left winglet C 3 2 ...")
+        sub_item_with_title_pattern = re.compile(
+            r'^(\d{2}-\d{2}-\d{2}(?:-\d+)?[A-Z])\s+'  # Item code with letter
+            r'([A-Z][a-z][a-zA-Z\s]*?)\s+'  # Sub-title (starts with capital, then lowercase)
+            r'([ABCD-])\s+'  # Rectification interval
+            r'([\d-]+)\s+'  # Number installed (can be -)
+            r'([\d-]+)\s*'  # Number required (can be -)
             r'(\(M\))?\s*(\(O\))?\s*'  # Flags
             r'(.*)$'  # Remarks
         )
@@ -259,6 +358,78 @@ class MmelParser:
                 i = j
                 continue
 
+            # Check for sub-item with sub-title (e.g., "23-60-01-1A Left winglet C 3 2")
+            title_match = sub_item_with_title_pattern.match(line)
+            if title_match:
+                item = self._create_item_with_subtitle(
+                    title_match, current_ata_chapter, current_ata_title,
+                    current_item_title, current_note
+                )
+
+                # Collect conditions and full remarks from following lines
+                conditions = []
+                remarks_parts = [item.remarksText] if item.remarksText else []
+                j = i + 1
+
+                while j < total_lines:
+                    next_line = lines[j].strip()
+
+                    if not next_line:
+                        j += 1
+                        continue
+
+                    # Check if next item or section starts
+                    if next_item_pattern.match(next_line):
+                        break
+                    if next_line.startswith('ATA CHAPTER'):
+                        break
+
+                    # Check for condition
+                    cond_match = condition_pattern.match(next_line)
+                    if cond_match:
+                        cond_text = cond_match.group(2)
+                        # Check for continuation on next lines
+                        k = j + 1
+                        while k < total_lines:
+                            cont_line = lines[k].strip()
+                            if not cont_line:
+                                k += 1
+                                continue
+                            if condition_pattern.match(cont_line):
+                                break
+                            if next_item_pattern.match(cont_line):
+                                break
+                            if cont_line.startswith('ATA CHAPTER'):
+                                break
+                            if cont_line.startswith('(1)') or cont_line.startswith('(2)'):
+                                k += 1
+                                continue
+                            cond_text += ' ' + cont_line
+                            k += 1
+                        conditions.append(f"({cond_match.group(1)}) {cond_text.strip()}")
+                        j = k
+                        continue
+
+                    # Skip header table remnants
+                    if next_line.startswith('(1)') or next_line.startswith('(2)'):
+                        j += 1
+                        continue
+
+                    # Otherwise, might be remarks continuation
+                    remarks_parts.append(next_line)
+                    j += 1
+
+                item.conditions = conditions
+
+                # Join remarks properly
+                full_remarks = ' '.join(remarks_parts).strip()
+                full_remarks = re.sub(r'\s+', ' ', full_remarks)
+                item.remarksText = full_remarks
+
+                self.items.append(item)
+                i = j
+                continue
+
             # Check for multi-line sub-item (code on one line, details on next)
             if re.match(r'^\d{2}-\d{2}-\d{2}(?:-\d+)?[A-Z]\s+\([A-Z/]+\)', line):
                 # Might be a split item, try to combine with next line
@@ -311,6 +482,47 @@ class MmelParser:
             ataTitle=ata_title,
             operationTypes=op_types,
             msnEffectivity=msn.strip() if msn else None,
+            rectificationInterval=rect_interval if rect_interval != '-' else None,
+            numberInstalled=num_installed,
+            numberRequired=num_required,
+            requiresMaintenance=bool(m_flag),
+            requiresOperations=bool(o_flag),
+            remarksText=remarks.strip(),
+            conditions=[],
+            note=note if note else None,
+            isSubItem=True,
+            parentItemCode=parent_code
+        )
+
+    def _create_item_with_subtitle(self, match: re.Match, ata_chapter: str, ata_title: str,
+                                    item_title: str, note: str) -> MmelItem:
+        """Create an MmelItem from a regex match with sub-title format.
+
+        Format: XX-XX-XX-NA Sub-title INTERVAL INSTALLED REQUIRED (FLAGS) Remarks
+        """
+        full_code = match.group(1)
+        sub_title = match.group(2).strip()
+        rect_interval = match.group(3)
+        num_installed = match.group(4)
+        num_required = match.group(5)
+        m_flag = match.group(6)
+        o_flag = match.group(7)
+        remarks = match.group(8) or ""
+
+        # Combine item_title with sub_title for full context
+        combined_title = f"{item_title} - {sub_title}" if item_title else sub_title
+
+        # Extract parent item code
+        parent_match = re.match(r'^(\d{2}-\d{2}-\d{2}(?:-\d+)?)', full_code)
+        parent_code = parent_match.group(1) if parent_match else ""
+
+        return MmelItem(
+            fullItemCode=full_code,
+            itemTitle=combined_title,
+            ataChapter=ata_chapter,
+            ataTitle=ata_title,
+            operationTypes=["ALL"],  # Sub-titled items typically apply to all operations
+            msnEffectivity=None,
             rectificationInterval=rect_interval if rect_interval != '-' else None,
             numberInstalled=num_installed,
             numberRequired=num_required,
