@@ -60,6 +60,9 @@ class MmelParser:
 
     def preprocess_content(self, content: str) -> str:
         """Remove page markers, headers, and footers."""
+        # First: collapse multiple newlines/empty lines into single newline
+        content = re.sub(r'\n\s*\n+', '\n', content)
+
         lines = content.split('\n')
         cleaned_lines = []
 
@@ -118,6 +121,11 @@ class MmelParser:
 
                 # Look for continuation lines until we find the interval line
                 while j < len(lines):
+                    # Skip empty lines first
+                    while j < len(lines) and not lines[j].strip():
+                        j += 1
+                    if j >= len(lines):
+                        break
                     next_line = lines[j].strip()
 
                     # Check if this is the interval/values line
