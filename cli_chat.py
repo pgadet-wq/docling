@@ -64,9 +64,31 @@ def main():
     args = parser.parse_args()
 
     # Find default files if not specified
+    # Prefer files with most items (check file size as proxy)
     mmel_file = args.mmel or find_latest_file("output/parsed/mmel_*_structured.json")
     mel_file = args.mel or find_latest_file("output/parsed/mel_*_structured.json")
     audit_file = args.audit or find_latest_file("output/audit/audit_*.json")
+
+    # Validate files have enough items
+    import json
+    if mel_file:
+        try:
+            with open(mel_file, 'r') as f:
+                mel_check = json.load(f)
+                mel_item_count = len(mel_check.get('items', []))
+                if mel_item_count < 100:
+                    print(f"\n  WARNING: MEL file has only {mel_item_count} items (expected ~162)")
+                    # Try to find a better file
+                    all_mel_files = glob.glob("output/parsed/mel_*_structured.json")
+                    for f_path in all_mel_files:
+                        with open(f_path, 'r') as f:
+                            check_data = json.load(f)
+                            if len(check_data.get('items', [])) >= 100:
+                                mel_file = f_path
+                                print(f"  Using instead: {os.path.basename(mel_file)}")
+                                break
+        except Exception:
+            pass
 
     if not mmel_file:
         print("Erreur: Aucun fichier MMEL trouvé. Lancez d'abord le parsing.")

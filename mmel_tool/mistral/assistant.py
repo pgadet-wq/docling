@@ -3,6 +3,7 @@ MEL/MMEL conversational assistant using Mistral AI.
 """
 
 import json
+import re
 from typing import Optional, Dict, List, Any
 from .client import MistralClient
 from .prompts import (
@@ -67,20 +68,40 @@ class MmelAssistant:
             return index
 
         for item in data["items"]:
-            # Index by item_number
-            if "item_number" in item:
-                index[item["item_number"]] = item
-                # Also index without suffix letter
-                base_num = item["item_number"].rstrip("ABCDEFGHIJ")
-                if base_num not in index:
-                    index[base_num] = item
+            # Get the item code (try both field names)
+            item_code = item.get("fullItemCode") or item.get("item_number", "")
 
-            # Index by ata_chapter-sequence
-            if "ata_chapter" in item and "sequence" in item:
-                key = f"{item['ata_chapter']}-{item['sequence']}"
-                index[key] = item
+            if item_code:
+                # Index by full code (e.g., "21-40-01-2E")
+                index[item_code] = item
+                index[item_code.upper()] = item
+
+                # Index by simplified code (remove trailing letter)
+                base_code = item_code.rstrip("ABCDEFGHIJ")
+                if base_code not in index:
+                    index[base_code] = item
+
+                # Index by partial code (first 3 parts: XX-XX-XX)
+                parts = item_code.split("-")
+                if len(parts) >= 3:
+                    partial = "-".join(parts[:3])
+                    if partial not in index:
+                        index[partial] = item
+
+            # Index by ATA chapter
+            ata = item.get("ataChapter") or item.get("ata_chapter")
+            if ata:
+                key = f"ata_{ata}"
+                if key not in index:
+                    index[key] = []
+                if isinstance(index[key], list):
+                    index[key].append(item)
 
         return index
+
+    def _normalize_item_code(self, item_code: str) -> str:
+        """Normalize an item code for lookup."""
+        return item_code.strip().upper().replace(" ", "-").replace("_", "-")
 
     def _find_item(self, item_code: str) -> tuple:
         """
@@ -89,58 +110,204 @@ class MmelAssistant:
         Returns:
             Tuple of (mmel_item, mel_item)
         """
-        # Normalize the code
-        code = item_code.strip().upper().replace(" ", "-")
+        code = self._normalize_item_code(item_code)
 
         mmel_item = self._mmel_index.get(code)
         mel_item = self._mel_index.get(code)
 
-        # Try alternative formats
-        if not mmel_item and not mel_item:
-            # Try with different separators
-            for sep in ["-", "_", ""]:
-                alt_code = code.replace("-", sep)
-                mmel_item = mmel_item or self._mmel_index.get(alt_code)
-                mel_item = mel_item or self._mel_index.get(alt_code)
+        # Try without trailing letter
+        if not mmel_item or not mel_item:
+            base_code = code.rstrip("ABCDEFGHIJ")
+            mmel_item = mmel_item or self._mmel_index.get(base_code)
+            mel_item = mel_item or self._mel_index.get(base_code)
+
+        # Try partial match (first 3 parts)
+        if not mmel_item or not mel_item:
+            parts = code.split("-")
+            if len(parts) >= 3:
+                partial = "-".join(parts[:3])
+                mmel_item = mmel_item or self._mmel_index.get(partial)
+                mel_item = mel_item or self._mel_index.get(partial)
+
+        # Try searching in all items
+        if not mmel_item or not mel_item:
+            search_code = code.replace("-", "")
+            for key, item in self._mmel_index.items():
+                if isinstance(item, dict) and search_code in key.replace("-", ""):
+                    mmel_item = mmel_item or item
+                    break
+            for key, item in self._mel_index.items():
+                if isinstance(item, dict) and search_code in key.replace("-", ""):
+                    mel_item = mel_item or item
+                    break
 
         return mmel_item, mel_item
+
+    def _format_item_data(self, item: Dict, source: str) -> str:
+        """Format item data as readable text."""
+        if not item:
+            return f"Aucune donnée {source} disponible."
+
+        # Handle both field name conventions
+        item_code = item.get("fullItemCode") or item.get("item_number", "N/A")
+        title = item.get("itemTitle") or item.get("description", "N/A")
+        ata = item.get("ataChapter") or item.get("ata_chapter", "N/A")
+        ata_title = item.get("ataTitle") or item.get("ata_title", "")
+        interval = item.get("rectificationInterval") or item.get("rectification_interval", "N/A")
+        num_installed = item.get("numberInstalled") or item.get("number_installed", "N/A")
+        num_required = item.get("numberRequired") or item.get("number_required", "N/A")
+        remarks = item.get("remarksText") or item.get("remarks", "")
+        ops = item.get("operationTypes") or item.get("operation_types", [])
+        requires_m = item.get("requiresMaintenance", False)
+        requires_o = item.get("requiresOperations", False)
+        conditions = item.get("conditions", [])
+
+        text = f"""
+=== {source} ===
+Code item: {item_code}
+Titre: {title}
+Chapitre ATA: {ata} - {ata_title}
+Intervalle de rectification: {interval}
+Quantité installée: {num_installed}
+Quantité requise pour dispatch: {num_required}
+Types d'opération: {', '.join(ops) if ops else 'N/A'}
+Procédure (M) requise: {'Oui' if requires_m else 'Non'}
+Procédure (O) requise: {'Oui' if requires_o else 'Non'}
+Remarques: {remarks if remarks else 'Aucune'}
+"""
+        if conditions:
+            text += f"Conditions: {'; '.join(conditions)}\n"
+
+        return text
+
+    def _get_item_json(self, item: Dict) -> str:
+        """Get item as formatted JSON string."""
+        if not item:
+            return "{}"
+        # Select relevant fields only
+        relevant = {
+            "code": item.get("fullItemCode") or item.get("item_number"),
+            "titre": item.get("itemTitle") or item.get("description"),
+            "chapitre_ata": item.get("ataChapter") or item.get("ata_chapter"),
+            "intervalle": item.get("rectificationInterval") or item.get("rectification_interval"),
+            "quantite_installee": item.get("numberInstalled") or item.get("number_installed"),
+            "quantite_requise": item.get("numberRequired") or item.get("number_required"),
+            "remarques": item.get("remarksText") or item.get("remarks"),
+            "procedure_M": item.get("requiresMaintenance", False),
+            "procedure_O": item.get("requiresOperations", False),
+            "conditions": item.get("conditions", []),
+        }
+        return json.dumps(relevant, indent=2, ensure_ascii=False)
+
+    def _get_items_context(self, item_code: str) -> str:
+        """Get detailed context for a specific item with full data."""
+        mmel_item, mel_item = self._find_item(item_code)
+
+        if not mmel_item and not mel_item:
+            # Try to find similar items
+            similar = self._find_similar_items(item_code)
+            if similar:
+                return f"Item '{item_code}' non trouvé. Items similaires: {', '.join(similar[:5])}"
+            return f"Aucun item trouvé pour le code '{item_code}'. Vérifiez le format (ex: 21-40-01A)."
+
+        context_parts = []
+
+        context_parts.append(f"\n### DONNÉES DE L'ITEM {item_code} ###\n")
+
+        if mmel_item:
+            context_parts.append("MMEL (Référence constructeur/EASA):")
+            context_parts.append(self._format_item_data(mmel_item, "MMEL"))
+            context_parts.append(f"\nJSON MMEL:\n{self._get_item_json(mmel_item)}\n")
+
+        if mel_item:
+            context_parts.append("MEL (Liste opérateur):")
+            context_parts.append(self._format_item_data(mel_item, "MEL"))
+            context_parts.append(f"\nJSON MEL:\n{self._get_item_json(mel_item)}\n")
+
+        return "\n".join(context_parts)
+
+    def _find_similar_items(self, item_code: str) -> List[str]:
+        """Find similar item codes."""
+        code = self._normalize_item_code(item_code)
+        parts = code.split("-")
+        similar = []
+
+        # Search by ATA chapter
+        if parts:
+            ata = parts[0]
+            for key in list(self._mmel_index.keys()) + list(self._mel_index.keys()):
+                if isinstance(key, str) and key.startswith(ata) and key not in similar:
+                    if not key.startswith("ata_"):
+                        similar.append(key)
+                        if len(similar) >= 10:
+                            break
+
+        return similar
 
     def _get_context(self) -> str:
         """Get current data context for prompts."""
         return get_context_prompt(self.mmel_data, self.mel_data, self.audit_data)
 
-    def _get_items_context(self, item_code: str) -> str:
-        """Get detailed context for a specific item."""
-        mmel_item, mel_item = self._find_item(item_code)
+    def _extract_item_codes(self, text: str) -> List[str]:
+        """Extract item codes from text."""
+        # Pattern: XX-XX-XX or XX-XX-XX-X or XX-XX-XXX
+        patterns = [
+            r'\b(\d{2}-\d{2}-\d{2}-\d+[A-Z]?)\b',  # 21-40-01-2E
+            r'\b(\d{2}-\d{2}-\d{2}[A-Z]?)\b',       # 21-40-01A
+            r'\b(\d{2}-\d{2}-\d{3}[A-Z]?)\b',       # 21-40-001A
+        ]
+        codes = []
+        for pattern in patterns:
+            codes.extend(re.findall(pattern, text, re.IGNORECASE))
+        return list(set(codes))
 
-        context_parts = []
+    def _detect_equipment_query(self, question: str) -> Optional[str]:
+        """Detect if question is about specific equipment and find item code."""
+        question_lower = question.lower()
 
-        if mmel_item:
-            context_parts.append(f"""
-Item MMEL {item_code}:
-- Numéro: {mmel_item.get('item_number', 'N/A')}
-- Description: {mmel_item.get('description', 'N/A')}
-- Intervalle: {mmel_item.get('rectification_interval', 'N/A')}
-- Quantité installée: {mmel_item.get('number_installed', 'N/A')}
-- Quantité requise: {mmel_item.get('number_required', 'N/A')}
-- Remarques: {mmel_item.get('remarks', 'N/A')}
-""")
+        # Keywords to equipment mapping
+        equipment_map = {
+            "fms": ["34-50", "34-51"],
+            "gps": ["34-50", "34-52"],
+            "autopilot": ["22-10", "22-11"],
+            "pilote automatique": ["22-10", "22-11"],
+            "chauffage": ["21-40"],
+            "heating": ["21-40"],
+            "heater": ["21-40"],
+            "pressurisation": ["21-30"],
+            "pressurization": ["21-30"],
+            "oxygen": ["35-10", "35-20"],
+            "oxygène": ["35-10", "35-20"],
+            "radio": ["23-10", "23-11"],
+            "com": ["23-10", "23-11"],
+            "nav": ["34-10", "34-20"],
+            "radar": ["34-40"],
+            "weather radar": ["34-40"],
+            "transponder": ["34-55"],
+            "transpondeur": ["34-55"],
+            "apu": ["49-10"],
+            "engine": ["70", "71", "72", "73"],
+            "moteur": ["70", "71", "72", "73"],
+            "fuel": ["28-10", "28-20"],
+            "carburant": ["28-10", "28-20"],
+            "landing gear": ["32-10", "32-20"],
+            "train": ["32-10", "32-20"],
+            "flaps": ["27-50"],
+            "volets": ["27-50"],
+        }
 
-        if mel_item:
-            context_parts.append(f"""
-Item MEL {item_code}:
-- Numéro: {mel_item.get('item_number', 'N/A')}
-- Description: {mel_item.get('description', 'N/A')}
-- Intervalle: {mel_item.get('rectification_interval', 'N/A')}
-- Quantité installée: {mel_item.get('number_installed', 'N/A')}
-- Quantité requise: {mel_item.get('number_required', 'N/A')}
-- Remarques: {mel_item.get('remarks', 'N/A')}
-""")
+        for keyword, ata_codes in equipment_map.items():
+            if keyword in question_lower:
+                # Find first matching item
+                for ata in ata_codes:
+                    for key, item in self._mel_index.items():
+                        if isinstance(item, dict) and key.startswith(ata):
+                            return key
+                    for key, item in self._mmel_index.items():
+                        if isinstance(item, dict) and key.startswith(ata):
+                            return key
 
-        if not context_parts:
-            return f"Aucun item trouvé pour le code '{item_code}'."
-
-        return "\n".join(context_parts)
+        return None
 
     def ask(self, question: str, include_history: bool = True) -> str:
         """
@@ -153,15 +320,24 @@ Item MEL {item_code}:
         Returns:
             The assistant's response
         """
-        # Build system prompt with context
+        # Build base system prompt with context
         system_prompt = SYSTEM_PROMPT_EXPERT + "\n\n" + self._get_context()
 
-        # Check if question is about a specific item
-        import re
-        item_match = re.search(r'\b(\d{2}-\d{2}-\d{2}[A-Z]?)\b', question)
-        if item_match:
-            item_context = self._get_items_context(item_match.group(1))
-            system_prompt += "\n\n" + item_context
+        # Check if question mentions specific item codes
+        item_codes = self._extract_item_codes(question)
+
+        # If no explicit codes, try to detect equipment query
+        if not item_codes:
+            detected_code = self._detect_equipment_query(question)
+            if detected_code:
+                item_codes = [detected_code]
+
+        # Add item data to context
+        if item_codes:
+            system_prompt += "\n\n### DONNÉES DES ITEMS MENTIONNÉS ###\n"
+            for code in item_codes[:3]:  # Limit to 3 items
+                item_context = self._get_items_context(code)
+                system_prompt += item_context
 
         # Build messages
         messages = []
@@ -202,32 +378,34 @@ Item MEL {item_code}:
         # Use MEL if available, otherwise MMEL
         item = mel_item or mmel_item
         if not item:
-            result["error"] = f"Item {item_code} not found in MEL or MMEL"
+            result["error"] = f"Item {item_code} non trouvé. {self._find_similar_items(item_code)[:5]}"
             return result
 
         result["source"] = "MEL" if mel_item else "MMEL"
-        result["description"] = item.get("description", "")
-        result["rectification_interval"] = item.get("rectification_interval")
-        result["remarks"] = item.get("remarks")
+        result["description"] = item.get("itemTitle") or item.get("description", "")
+        result["rectification_interval"] = item.get("rectificationInterval") or item.get("rectification_interval")
+        result["remarks"] = item.get("remarksText") or item.get("remarks")
 
         # Check if dispatch is possible
-        num_required = item.get("number_required", 0)
+        num_required = item.get("numberRequired") or item.get("number_required", 0)
         if isinstance(num_required, str):
-            num_required = 0 if num_required == "-" else int(num_required)
+            num_required = 0 if num_required in ["-", "0", ""] else int(num_required)
 
         # If 0 required, dispatch is possible
         result["can_dispatch"] = num_required == 0
 
-        # Extract conditions from remarks
-        remarks = item.get("remarks", "") or ""
-        if "(O)" in remarks:
-            result["conditions"].append("Operations procedure required")
-        if "(M)" in remarks:
-            result["conditions"].append("Maintenance procedure required")
+        # Extract conditions
+        if item.get("requiresOperations"):
+            result["conditions"].append("Procédure opérationnelle (O) requise")
+        if item.get("requiresMaintenance"):
+            result["conditions"].append("Procédure maintenance (M) requise")
 
-        # Use AI for detailed explanation
-        question = f"Puis-je dispatcher l'avion avec l'item {item_code} ({item.get('description', '')}) inopérant?"
-        system_prompt = SYSTEM_PROMPT_DISPATCHER + "\n\n" + self._get_items_context(item_code)
+        # Use AI for detailed explanation with full item data
+        item_context = self._get_items_context(item_code)
+        question = f"""L'équipement '{result['description']}' (item {item_code}) est inopérant.
+Puis-je dispatcher l'avion ? Explique les conditions et restrictions."""
+
+        system_prompt = SYSTEM_PROMPT_DISPATCHER + "\n\n" + item_context
 
         result["ai_explanation"] = self.client.simple_query(question, system_prompt)
 
@@ -243,17 +421,27 @@ Item MEL {item_code}:
         Returns:
             Detailed explanation
         """
+        mmel_item, mel_item = self._find_item(item_code)
+
+        if not mmel_item and not mel_item:
+            similar = self._find_similar_items(item_code)
+            if similar:
+                return f"Item '{item_code}' non trouvé. Items similaires disponibles: {', '.join(similar[:10])}"
+            return f"Item '{item_code}' non trouvé dans la MEL ni la MMEL."
+
+        # Build comprehensive context with full item data
         item_context = self._get_items_context(item_code)
 
-        if "Aucun item trouvé" in item_context:
-            return item_context
+        question = f"""Voici les données complètes de l'item {item_code}.
 
-        question = f"""Explique en détail l'item {item_code}:
-1. À quoi sert cet équipement?
-2. Quelles sont les conditions pour voler avec cet équipement inopérant?
-3. Quel est l'intervalle de rectification et que signifie-t-il?
-4. Y a-t-il des procédures (O) ou (M) à respecter?
-5. Quelles sont les implications opérationnelles?"""
+Explique cet item de manière claire et structurée:
+1. À quoi sert cet équipement dans l'avion?
+2. Peut-on voler avec cet équipement inopérant? Si oui, sous quelles conditions?
+3. Quel est l'intervalle de rectification ({mmel_item.get('rectificationInterval') if mmel_item else 'N/A'}) et que signifie-t-il concrètement?
+4. Quelles procédures (O) ou (M) doivent être accomplies avant le vol?
+5. Y a-t-il des implications opérationnelles importantes?
+
+Base ta réponse UNIQUEMENT sur les données fournies ci-dessus."""
 
         system_prompt = SYSTEM_PROMPT_EXPERT + "\n\n" + item_context
 
@@ -267,27 +455,40 @@ Item MEL {item_code}:
             Summary of non-conformities
         """
         if not self.audit_data:
-            return "Aucune donnée d'audit disponible. Lancez d'abord un audit."
+            return "Aucune donnée d'audit disponible. Lancez d'abord un audit avec POST /api/v1/audit/quick"
 
         # Extract non-compliant items
         results = self.audit_data.get("results", [])
         non_compliant = [r for r in results if r.get("status") == "NON_COMPLIANT"]
 
         if not non_compliant:
-            return "Aucun item non conforme trouvé. Tous les items sont conformes ou plus restrictifs."
+            summary = self.audit_data.get("summary", {})
+            return f"""Aucun item non conforme trouvé.
 
-        # Build context
-        context = f"Items non conformes ({len(non_compliant)}):\n"
-        for item in non_compliant[:10]:  # Limit to 10 for context
+Résumé de l'audit:
+- Score de conformité: {summary.get('compliance_score', 0):.1f}%
+- Items conformes: {summary.get('compliant', 0)}
+- Items plus restrictifs: {summary.get('more_restrictive', 0)}
+- Items manquants dans MEL: {summary.get('missing_in_mel', 0)}
+- Items en surplus dans MEL: {summary.get('extra_in_mel', 0)}"""
+
+        # Build detailed context
+        context = f"### ITEMS NON CONFORMES ({len(non_compliant)}) ###\n\n"
+        for item in non_compliant:
             context += f"""
-- {item.get('item_number', 'N/A')}: {item.get('description', 'N/A')}
-  Raison: {item.get('reason', 'N/A')}
+Item: {item.get('item_number', 'N/A')}
+Description: {item.get('description', 'N/A')}
+Statut: NON_COMPLIANT
+Raison: {item.get('reason', 'N/A')}
+Intervalle MMEL: {item.get('mmel_interval', 'N/A')}
+Intervalle MEL: {item.get('mel_interval', 'N/A')}
+---
 """
 
-        question = """Résume les non-conformités détectées:
-1. Combien d'items sont non conformes?
-2. Quels sont les problèmes les plus critiques?
-3. Quelles actions correctives recommandes-tu?
+        question = """Analyse les items non conformes ci-dessus:
+1. Combien d'items sont non conformes et quels sont-ils?
+2. Quels sont les problèmes les plus critiques du point de vue sécurité?
+3. Quelles actions correctives recommandes-tu en priorité?
 4. Y a-t-il des tendances par chapitre ATA?"""
 
         system_prompt = SYSTEM_PROMPT_AUDIT + "\n\n" + self._get_context() + "\n\n" + context
@@ -307,33 +508,38 @@ Item MEL {item_code}:
         mmel_item, mel_item = self._find_item(item_code)
 
         if not mmel_item and not mel_item:
+            similar = self._find_similar_items(item_code)
+            if similar:
+                return f"Item '{item_code}' non trouvé. Items similaires: {', '.join(similar[:10])}"
             return f"Item {item_code} non trouvé dans la MEL ni la MMEL."
 
-        context = self._get_items_context(item_code)
+        # Get full item context
+        item_context = self._get_items_context(item_code)
 
         # Check audit results for this item
-        audit_result = None
+        audit_info = ""
         if self.audit_data and "results" in self.audit_data:
             for result in self.audit_data["results"]:
-                if result.get("item_number", "").startswith(item_code.split("-")[0]):
-                    if item_code in result.get("item_number", ""):
-                        audit_result = result
-                        break
-
-        if audit_result:
-            context += f"""
-Résultat d'audit pour cet item:
-- Statut: {audit_result.get('status', 'N/A')}
-- Raison: {audit_result.get('reason', 'N/A')}
+                result_code = result.get("item_number", "")
+                if item_code in result_code or result_code in item_code:
+                    audit_info = f"""
+### RÉSULTAT D'AUDIT ###
+Statut: {result.get('status', 'N/A')}
+Raison: {result.get('reason', 'N/A')}
 """
+                    break
 
-        question = f"""Compare l'item {item_code} entre la MEL et la MMEL:
-1. Quelles sont les différences d'intervalle de rectification?
-2. Les remarques sont-elles identiques?
-3. La MEL est-elle conforme, plus restrictive, ou non conforme?
-4. Y a-t-il des risques opérationnels?"""
+        question = f"""Compare l'item {item_code} entre la MEL et la MMEL.
 
-        system_prompt = SYSTEM_PROMPT_AUDIT + "\n\n" + context
+Analyse:
+1. Les intervalles de rectification sont-ils identiques? Si non, quelle est la différence?
+2. Les remarques et conditions sont-elles équivalentes?
+3. La MEL est-elle conforme, plus restrictive, ou non conforme par rapport à la MMEL?
+4. Y a-t-il des risques opérationnels ou de conformité?
+
+Base ton analyse sur les données exactes fournies."""
+
+        system_prompt = SYSTEM_PROMPT_AUDIT + "\n\n" + item_context + audit_info
 
         return self.client.simple_query(question, system_prompt)
 
@@ -351,11 +557,10 @@ Résultat d'audit pour cet item:
         Returns:
             List of source references (item codes, chapters, etc.)
         """
-        import re
         sources = []
 
         # Find item codes
-        item_codes = re.findall(r'\b(\d{2}-\d{2}-\d{2}[A-Z]?)\b', response)
+        item_codes = self._extract_item_codes(response)
         sources.extend([f"Item {code}" for code in set(item_codes)])
 
         # Find ATA chapters
