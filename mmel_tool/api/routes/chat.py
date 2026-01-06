@@ -80,6 +80,100 @@ def get_assistant():
         )
 
 
+@router.post("/reload")
+async def reload_assistant():
+    """Force reload the assistant with fresh data."""
+    global _assistant
+    _assistant = None
+
+    # Trigger reload
+    try:
+        assistant = get_assistant()
+        mel_count = len(assistant.mel_data.get("items", []))
+        mmel_count = len(assistant.mmel_data.get("items", []))
+        return {
+            "status": "success",
+            "message": "Assistant reloaded",
+            "mel_items": mel_count,
+            "mmel_items": mmel_count,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/debug/{item_code}")
+async def debug_item_lookup(item_code: str):
+    """Debug endpoint to verify item lookup works correctly (no API key needed)."""
+    import json as json_module
+
+    # Find latest parsed files
+    mmel_files = glob.glob(os.path.join(PARSED_DIR, "mmel_*_structured.json"))
+    mel_files = glob.glob(os.path.join(PARSED_DIR, "mel_*_structured.json"))
+
+    if not mmel_files or not mel_files:
+        raise HTTPException(status_code=404, detail="No parsed files found")
+
+    mmel_file = max(mmel_files, key=os.path.getmtime)
+    mel_file = max(mel_files, key=os.path.getmtime)
+
+    # Load data directly
+    with open(mel_file, 'r') as f:
+        mel_data = json_module.load(f)
+    with open(mmel_file, 'r') as f:
+        mmel_data = json_module.load(f)
+
+    # Build indexes
+    def build_index(data):
+        index = {}
+        for item in data.get("items", []):
+            code = item.get("fullItemCode", "")
+            if code:
+                index[code] = item
+                index[code.upper()] = item
+        return index
+
+    mel_index = build_index(mel_data)
+    mmel_index = build_index(mmel_data)
+
+    # Normalize and lookup
+    code_normalized = item_code.strip().upper().replace(" ", "-")
+    mel_item = mel_index.get(code_normalized)
+    mmel_item = mmel_index.get(code_normalized)
+
+    result = {
+        "item_code": item_code,
+        "code_normalized": code_normalized,
+        "mel_found": bool(mel_item),
+        "mmel_found": bool(mmel_item),
+        "mel_index_size": len(mel_index),
+        "mmel_index_size": len(mmel_index),
+        "mel_items_total": len(mel_data.get("items", [])),
+        "mmel_items_total": len(mmel_data.get("items", [])),
+        "mel_file": os.path.basename(mel_file),
+        "mmel_file": os.path.basename(mmel_file),
+    }
+
+    if mel_item:
+        result["mel_item"] = {
+            "code": mel_item.get("fullItemCode"),
+            "title": mel_item.get("itemTitle"),
+            "interval": mel_item.get("rectificationInterval") or mel_item.get("category"),
+            "remarks": mel_item.get("remarksText"),
+            "conditions": mel_item.get("conditions", []),
+        }
+
+    if mmel_item:
+        result["mmel_item"] = {
+            "code": mmel_item.get("fullItemCode"),
+            "title": mmel_item.get("itemTitle"),
+            "interval": mmel_item.get("rectificationInterval"),
+            "remarks": mmel_item.get("remarksText"),
+            "conditions": mmel_item.get("conditions", []),
+        }
+
+    return result
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
