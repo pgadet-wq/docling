@@ -457,11 +457,13 @@ Puis-je dispatcher l'avion ? Explique les conditions et restrictions."""
         else:
             status_summary.append("ABSENT de MMEL (peut être un problème de parsing)")
 
-        question = f"""L'item {item_code} a été recherché dans les bases de données:
+        question = f"""L'item {item_code} a été recherché dans les bases de données.
+
+STATUT DE RECHERCHE (VERIFIÉ - NE PAS CONTREDIRE):
 - {status_summary[0]}
 - {status_summary[1]}
 
-Voici les données complètes disponibles pour cet item.
+Voici les données complètes disponibles pour cet item. UTILISE CES DONNÉES.
 
 Explique cet item de manière claire et structurée:
 1. À quoi sert cet équipement dans l'avion?
@@ -470,7 +472,9 @@ Explique cet item de manière claire et structurée:
 4. Quelles procédures (O) ou (M) doivent être accomplies avant le vol?
 5. Y a-t-il des implications opérationnelles importantes?
 
-IMPORTANT: L'item EXISTE dans au moins une des bases. Base ta réponse sur les données fournies."""
+TRÈS IMPORTANT: Le statut de recherche ci-dessus est CORRECT et VÉRIFIÉ par le système.
+NE DIS JAMAIS qu'un item est "absent" ou "non trouvé" si le statut indique "TROUVÉ".
+Base ta réponse UNIQUEMENT sur les données JSON fournies dans le contexte."""
 
         system_prompt = SYSTEM_PROMPT_EXPERT + "\n\n" + item_context
 
@@ -558,15 +562,23 @@ Raison: {result.get('reason', 'N/A')}
 """
                     break
 
+        # Build status summary for comparison
+        status_mel = "TROUVÉ dans MEL" if mel_item else "ABSENT de MEL"
+        status_mmel = "TROUVÉ dans MMEL" if mmel_item else "ABSENT de MMEL"
+
         question = f"""Compare l'item {item_code} entre la MEL et la MMEL.
 
-Analyse:
+STATUT DE RECHERCHE (VÉRIFIÉ):
+- {status_mel}
+- {status_mmel}
+
+Analyse les données JSON fournies et réponds:
 1. Les intervalles de rectification sont-ils identiques? Si non, quelle est la différence?
 2. Les remarques et conditions sont-elles équivalentes?
 3. La MEL est-elle conforme, plus restrictive, ou non conforme par rapport à la MMEL?
 4. Y a-t-il des risques opérationnels ou de conformité?
 
-Base ton analyse sur les données exactes fournies."""
+IMPORTANT: Utilise UNIQUEMENT les données fournies. Ne dis pas qu'un item est absent s'il est marqué "TROUVÉ"."""
 
         system_prompt = SYSTEM_PROMPT_AUDIT + "\n\n" + item_context + audit_info
 

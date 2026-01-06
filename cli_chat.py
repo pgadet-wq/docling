@@ -127,6 +127,13 @@ def main():
     mel_count = len(assistant.mel_data.get("items", [])) if assistant.mel_data else 0
     print(f"\n  Items MMEL: {mmel_count}")
     print(f"  Items MEL:  {mel_count}")
+    print(f"  MEL index size: {len(assistant._mel_index)}")
+    print(f"  MMEL index size: {len(assistant._mmel_index)}")
+
+    # Verify 21-30-02D lookup as debug
+    test_code = "21-30-02D"
+    mmel_test, mel_test = assistant._find_item(test_code)
+    print(f"\n  DEBUG: {test_code} in MEL: {mel_test is not None}, in MMEL: {mmel_test is not None}")
 
     print_header()
 
