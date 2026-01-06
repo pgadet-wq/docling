@@ -52,57 +52,106 @@ class MelParser:
         self.aircraft_registration = ""
         self.aircraft_msn = ""
 
-    def preprocess_content(self, content: str) -> str:
-        """Remove page markers, headers, and footers."""
+    def preprocess_content(self, content: str, debug: bool = False) -> str:
+        """Remove page markers, headers, and footers before parsing."""
         lines = content.split('\n')
         cleaned_lines = []
+        removed_lines = []
 
         for line in lines:
             stripped = line.strip()
+            remove_reason = None
+
+            # Skip empty lines (keep them but don't log)
+            if not stripped:
+                cleaned_lines.append(line)
+                continue
 
             # Skip page markers
             if re.match(r'^##\s*Page\s+\d+', stripped, re.IGNORECASE):
-                continue
-            if re.match(r'^Page\s+\d+\s+of\s+\d+', stripped, re.IGNORECASE):
-                continue
-            if re.match(r'^Page:\s*\d+', stripped, re.IGNORECASE):
-                continue
+                remove_reason = "page_marker"
+            elif re.match(r'^Page\s+\d+\s+of\s+\d+', stripped, re.IGNORECASE):
+                remove_reason = "page_of"
+            elif re.match(r'^Page:\s*\d+\s*/\s*\d+', stripped, re.IGNORECASE):
+                remove_reason = "page_colon"
 
             # Skip common headers/footers
-            if stripped.startswith('Document Number:'):
-                continue
-            if stripped.startswith('Issue date:'):
-                continue
-            if 'EASA approved' in stripped:
-                continue
-            if stripped == 'ITEM':
-                continue
-            if stripped == '(continued)':
-                continue
-            if re.match(r'^Revision:\s*\d+', stripped):
-                continue
-            if re.match(r'^\d{4}-\d{2}-\d{2}$', stripped):  # Date only lines
-                continue
-            if stripped.startswith('MEL_PC-12'):
-                continue
-            if re.match(r'^ISS\d+\s+REV\d+', stripped):
-                continue
+            elif stripped.startswith('Document Number:'):
+                remove_reason = "doc_number"
+            elif stripped.startswith('Issue date:'):
+                remove_reason = "issue_date"
+            elif 'EASA approved' in stripped:
+                remove_reason = "easa"
+            elif stripped == 'ITEM':
+                remove_reason = "item_header"
+            elif stripped == '(continued)':
+                remove_reason = "continued"
+            elif re.match(r'^Revision:\s*\d+', stripped):
+                remove_reason = "revision"
+            elif stripped.startswith('MEL_PC-12'):
+                remove_reason = "mel_pc12"
+            elif re.match(r'^ISS\d+\s*REV\d+', stripped, re.IGNORECASE):
+                remove_reason = "iss_rev"
 
             # Skip "cont'd" lines (table continuation markers) - handle both apostrophe types
-            if re.match(r"^(cont[\u0027\u2019]d\s*)+$", stripped, re.IGNORECASE):
-                continue
+            # Matches: "cont'd", "cont'd cont'd", "cont'd cont'd cont'd", etc.
+            elif re.match(r"^(cont[\u0027\u2019]d\s*)+$", stripped, re.IGNORECASE):
+                remove_reason = "contd_line"
 
             # Skip copyright lines
-            if stripped.startswith('© AMAC') or stripped.startswith('(C) AMAC'):
-                continue
+            elif stripped.startswith('© AMAC') or stripped.startswith('(C) AMAC'):
+                remove_reason = "copyright"
+            elif re.search(r'©\s*AMAC', stripped):
+                remove_reason = "copyright_inline"
 
             # Skip column header lines
-            if '1. System & Sequence numbers' in stripped:
-                continue
-            if stripped.startswith('1. System &'):
-                continue
+            elif '1. System & Sequence numbers' in stripped:
+                remove_reason = "col_header"
+            elif stripped.startswith('1. System &'):
+                remove_reason = "col_header"
+            elif re.match(r'^\d+\.\s*(System|Item|Category|Number|Remarks)', stripped):
+                remove_reason = "col_header_num"
 
-            cleaned_lines.append(line)
+            # Skip date-only lines (dd.mm.yyyy format)
+            elif re.match(r'^\d{2}\.\d{2}\.\d{4}$', stripped):
+                remove_reason = "date_only"
+            elif re.match(r'^\d{4}-\d{2}-\d{2}$', stripped):
+                remove_reason = "date_iso"
+
+            # Skip aircraft registration alone on a line
+            elif re.match(r'^HB-[A-Z]+$', stripped):
+                remove_reason = "registration"
+
+            # Skip lines with just numbers like "1 0" (table cell remnants)
+            elif re.match(r'^\d+\s+\d+$', stripped):
+                remove_reason = "number_pair"
+
+            # Skip "Item Base Relief" header
+            elif stripped == 'Item Base Relief':
+                remove_reason = "item_base_relief"
+
+            if remove_reason:
+                removed_lines.append((remove_reason, stripped[:60]))
+            else:
+                cleaned_lines.append(line)
+
+        # Debug output
+        if debug and removed_lines:
+            print(f"\n[PREPROCESS] Removed {len(removed_lines)} lines:")
+            by_reason = {}
+            for reason, text in removed_lines:
+                by_reason.setdefault(reason, []).append(text)
+            for reason, texts in sorted(by_reason.items()):
+                print(f"  {reason}: {len(texts)} lines")
+                for t in texts[:3]:
+                    print(f"    - {t}")
+                if len(texts) > 3:
+                    print(f"    ... and {len(texts) - 3} more")
+
+        self._removed_lines_count = len(removed_lines)
+        self._removed_by_reason = {}
+        for reason, _ in removed_lines:
+            self._removed_by_reason[reason] = self._removed_by_reason.get(reason, 0) + 1
 
         return '\n'.join(cleaned_lines)
 
@@ -183,8 +232,8 @@ class MelParser:
         if msn_match:
             self.aircraft_msn = msn_match.group(1)
 
-        # Pre-process content
-        content = self.preprocess_content(content)
+        # Pre-process content (with debug output)
+        content = self.preprocess_content(content, debug=True)
 
         # Pre-process: join split item codes
         content = re.sub(r'(\d{2}-\d{2}-)\n(\d{2}(?:-\d+)?[A-Z])', r'\1\2', content)
@@ -479,6 +528,14 @@ def main():
 
     print(f"Fichier JSON sauvegardé: {output_file}")
     print("=" * 60)
+
+    # Show preprocess statistics
+    if hasattr(parser, '_removed_lines_count'):
+        print(f"\nPRÉ-PROCESSING:")
+        print(f"  Lignes supprimées: {parser._removed_lines_count}")
+        if hasattr(parser, '_removed_by_reason'):
+            for reason, count in sorted(parser._removed_by_reason.items()):
+                print(f"    - {reason}: {count}")
 
     print(f"\nAIRCRAFT: {stats['aircraft_registration']} (MSN {stats['aircraft_msn']})")
     print("\nSTATISTIQUES MEL:")

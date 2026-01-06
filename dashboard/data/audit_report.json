@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "audit_date": "2026-01-06T02:07:04.852274",
+    "audit_date": "2026-01-06T02:16:15.417374",
     "mmel_file": "output/parsed/mmel_pc12_structured.json",
     "mel_file": "output/parsed/mel_pc12_structured.json",
     "mel_aircraft": "HB-FVT",
@@ -769,7 +769,7 @@
         "numberRequired": "0",
         "requiresMaintenance": false,
         "requiresOperations": true,
-        "remarksText": "Cabin and underfloor heater may be inoperative provided the flight is conducted at IOAT above -15°C.",
+        "remarksText": "Cabin and underfloor heater may be inoperative provided the flight is conducted at IOAT above -15°C",
         "conditions": [],
         "procedures": [],
         "airlineSpecific": "AMAC Corporate Jet - HB-FVT",
@@ -5479,7 +5479,7 @@
         "numberRequired": "0",
         "requiresMaintenance": false,
         "requiresOperations": false,
-        "remarksText": "May be inoperative.",
+        "remarksText": "May be inoperative",
         "conditions": [],
         "procedures": [],
         "airlineSpecific": "AMAC Corporate Jet - HB-FVT",
@@ -6199,7 +6199,7 @@
         "numberRequired": "1",
         "requiresMaintenance": false,
         "requiresOperations": false,
-        "remarksText": "Any in excess of one may be inoperative provided: 1. the operative turn indication is on the pilot flying side, and 2. primary attitude indicators are operative at each required pilot’s station.",
+        "remarksText": "Any in excess of one may be inoperative provided: 1. the operative turn indication is on the pilot flying side, and 2. primary attitude indicators are operative at each required pilot’s station",
         "conditions": [],
         "procedures": [],
         "airlineSpecific": "AMAC Corporate Jet - HB-FVT",
@@ -8420,8 +8420,8 @@
         "ataChapter": "34",
         "ataTitle": "NAVIGATION",
         "operationTypes": [
-          "RNAV",
-          "RNP"
+          "RNP",
+          "RNAV"
         ],
         "category": "A",
         "numberInstalled": "1",
@@ -10003,7 +10003,7 @@
         "numberRequired": "0",
         "requiresMaintenance": false,
         "requiresOperations": false,
-        "remarksText": "One or both may be inoperative.",
+        "remarksText": "One or both may be inoperative",
         "conditions": [],
         "procedures": [],
         "airlineSpecific": "AMAC Corporate Jet - HB-FVT",
@@ -10418,7 +10418,7 @@
         "numberRequired": "0",
         "requiresMaintenance": false,
         "requiresOperations": false,
-        "remarksText": "May be inoperative provided the Weather detection system (item 34-41-01) is considered inoperative.",
+        "remarksText": "May be inoperative provided the Weather detection system (item 34-41-01) is considered inoperative",
         "conditions": [],
         "procedures": [],
         "airlineSpecific": "AMAC Corporate Jet - HB-FVT",
