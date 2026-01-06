@@ -54,7 +54,10 @@ class MelParser:
 
     def preprocess_content(self, content: str, debug: bool = False) -> str:
         """Remove page markers, headers, and footers before parsing."""
-        # First: collapse multiple newlines/empty lines into single newline
+        # First: normalize line endings (Windows \r\n and \r to \n)
+        content = content.replace('\r\n', '\n').replace('\r', '\n')
+
+        # Then: collapse multiple newlines/empty lines into single newline
         content = re.sub(r'\n\s*\n+', '\n', content)
 
         lines = content.split('\n')
@@ -238,8 +241,11 @@ class MelParser:
         # Pre-process content (with debug output)
         content = self.preprocess_content(content, debug=True)
 
-        # Pre-process: join split item codes
+        # Pre-process: join split item codes (e.g., "21-30-\n02D" -> "21-30-02D")
         content = re.sub(r'(\d{2}-\d{2}-)\n(\d{2}(?:-\d+)?[A-Z])', r'\1\2', content)
+
+        # Pre-process: join item code with category line (e.g., "21-30-02D\nD 1 0" -> "21-30-02D D 1 0")
+        content = re.sub(r'(\d{2}-\d{2}-\d{2}(?:-\d+)?[A-Z])\n([ABCD]\s+[\d-]+\s+\d)', r'\1 \2', content)
 
         # Find all sub-items using MULTILINE regex
         sub_item_pattern = re.compile(
