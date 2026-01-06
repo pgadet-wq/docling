@@ -88,9 +88,64 @@ class MelParser:
             if re.match(r'^ISS\d+\s+REV\d+', stripped):
                 continue
 
+            # Skip "cont'd" lines (table continuation markers) - handle both apostrophe types
+            if re.match(r"^(cont[\u0027\u2019]d\s*)+$", stripped, re.IGNORECASE):
+                continue
+
+            # Skip copyright lines
+            if stripped.startswith('© AMAC') or stripped.startswith('(C) AMAC'):
+                continue
+
+            # Skip column header lines
+            if '1. System & Sequence numbers' in stripped:
+                continue
+            if stripped.startswith('1. System &'):
+                continue
+
             cleaned_lines.append(line)
 
         return '\n'.join(cleaned_lines)
+
+    def clean_remarks(self, remarks: str) -> str:
+        """Clean garbage from remarks text."""
+        # Remove everything after "cont'd" (table continuation marker indicates end of actual content)
+        # Handle both straight apostrophe (U+0027) and curly apostrophe (U+2019)
+        remarks = re.sub(r"\s*cont[\u0027\u2019]?d.*", '', remarks, flags=re.IGNORECASE | re.DOTALL)
+
+        # Remove copyright and footer text (anywhere in string)
+        remarks = re.sub(r'©\s*AMAC.*', '', remarks, flags=re.IGNORECASE)
+        remarks = re.sub(r'\(C\)\s*AMAC.*', '', remarks, flags=re.IGNORECASE)
+
+        # Remove column header remnants (more aggressive)
+        remarks = re.sub(r'\.\s*Category.*', '', remarks, flags=re.IGNORECASE)
+        remarks = re.sub(r'\.\s*System.*', '', remarks, flags=re.IGNORECASE)
+        remarks = re.sub(r'\.\s*Item\s+\d.*', '', remarks, flags=re.IGNORECASE)
+        remarks = re.sub(r'\.\s*Number.*', '', remarks, flags=re.IGNORECASE)
+        remarks = re.sub(r'\.\s*Remarks.*', '', remarks, flags=re.IGNORECASE)
+        remarks = re.sub(r'\d+\.\s*(System|Item|Category|Number|Remarks).*', '', remarks, flags=re.IGNORECASE)
+
+        # Remove date patterns like "05.05.2023"
+        remarks = re.sub(r'\d{2}\.\d{2}\.\d{4}', '', remarks)
+
+        # Remove aircraft registration
+        remarks = re.sub(r'\bHB-[A-Z]+\b', '', remarks)
+
+        # Remove page number patterns
+        remarks = re.sub(r'Page:\s*\d+\s*/\s*\d+', '', remarks)
+
+        # Remove "Item Base Relief" table header text
+        remarks = re.sub(r'Item Base Relief', '', remarks)
+
+        # Clean up multiple spaces and trim
+        remarks = re.sub(r'\s+', ' ', remarks).strip()
+
+        # Remove trailing punctuation artifacts
+        remarks = re.sub(r'\s*[.,;]\s*$', '', remarks)
+
+        # Remove trailing isolated digits (page remnants)
+        remarks = re.sub(r'\s+\d+\s*$', '', remarks)
+
+        return remarks
 
     def extract_operation_types(self, text: str) -> List[str]:
         """Extract operation types from text: (CAT), (NCO), (SPO), (ALL)."""
@@ -237,9 +292,10 @@ class MelParser:
                 if not in_conditions:
                     remarks_parts.append(stripped)
 
-            # Join remarks
+            # Join remarks and clean garbage
             full_remarks = ' '.join(remarks_parts).strip()
             full_remarks = re.sub(r'\s+', ' ', full_remarks)
+            full_remarks = self.clean_remarks(full_remarks)
 
             # Extract conditions
             conditions = []
@@ -409,7 +465,8 @@ def main():
             'total_items': stats['total_items'],
             'aircraft_registration': stats['aircraft_registration'],
             'aircraft_msn': stats['aircraft_msn'],
-            'operator': 'AMAC Corporate Jet'
+            'operator': 'AMAC Corporate Jet',
+            'defaultOperationType': 'NCO'  # Non-Commercial Operations (private aircraft HB-FVT)
         },
         'statistics': stats,
         'validation': validation,
