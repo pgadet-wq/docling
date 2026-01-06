@@ -214,15 +214,22 @@ Remarques: {remarks if remarks else 'Aucune'}
 
         context_parts.append(f"\n### DONNÉES DE L'ITEM {item_code} ###\n")
 
+        # Explicit status for each source
         if mmel_item:
-            context_parts.append("MMEL (Référence constructeur/EASA):")
+            context_parts.append("**TROUVÉ DANS MMEL** (Référence constructeur/EASA):")
             context_parts.append(self._format_item_data(mmel_item, "MMEL"))
             context_parts.append(f"\nJSON MMEL:\n{self._get_item_json(mmel_item)}\n")
+        else:
+            context_parts.append("**ABSENT DE MMEL** - Cet item n'existe pas dans la MMEL de référence.")
+            context_parts.append("  (Possibilité: item spécifique opérateur ou parsing incomplet)\n")
 
         if mel_item:
-            context_parts.append("MEL (Liste opérateur):")
+            context_parts.append("**TROUVÉ DANS MEL** (Liste opérateur):")
             context_parts.append(self._format_item_data(mel_item, "MEL"))
             context_parts.append(f"\nJSON MEL:\n{self._get_item_json(mel_item)}\n")
+        else:
+            context_parts.append("**ABSENT DE MEL** - Cet item n'existe pas dans la MEL opérateur.")
+            context_parts.append("  (L'item MMEL n'a pas été repris dans la MEL)\n")
 
         return "\n".join(context_parts)
 
@@ -432,16 +439,38 @@ Puis-je dispatcher l'avion ? Explique les conditions et restrictions."""
         # Build comprehensive context with full item data
         item_context = self._get_items_context(item_code)
 
-        question = f"""Voici les données complètes de l'item {item_code}.
+        # Determine the interval from whichever source has the item
+        interval = "N/A"
+        if mmel_item:
+            interval = mmel_item.get('rectificationInterval') or mmel_item.get('category', 'N/A')
+        elif mel_item:
+            interval = mel_item.get('rectificationInterval') or mel_item.get('category', 'N/A')
+
+        # Build status summary
+        status_summary = []
+        if mel_item:
+            status_summary.append(f"TROUVÉ dans MEL: {mel_item.get('itemTitle', '')}")
+        else:
+            status_summary.append("ABSENT de MEL")
+        if mmel_item:
+            status_summary.append(f"TROUVÉ dans MMEL: {mmel_item.get('itemTitle', '')}")
+        else:
+            status_summary.append("ABSENT de MMEL (peut être un problème de parsing)")
+
+        question = f"""L'item {item_code} a été recherché dans les bases de données:
+- {status_summary[0]}
+- {status_summary[1]}
+
+Voici les données complètes disponibles pour cet item.
 
 Explique cet item de manière claire et structurée:
 1. À quoi sert cet équipement dans l'avion?
 2. Peut-on voler avec cet équipement inopérant? Si oui, sous quelles conditions?
-3. Quel est l'intervalle de rectification ({mmel_item.get('rectificationInterval') if mmel_item else 'N/A'}) et que signifie-t-il concrètement?
+3. Quel est l'intervalle de rectification ({interval}) et que signifie-t-il concrètement?
 4. Quelles procédures (O) ou (M) doivent être accomplies avant le vol?
 5. Y a-t-il des implications opérationnelles importantes?
 
-Base ta réponse UNIQUEMENT sur les données fournies ci-dessus."""
+IMPORTANT: L'item EXISTE dans au moins une des bases. Base ta réponse sur les données fournies."""
 
         system_prompt = SYSTEM_PROMPT_EXPERT + "\n\n" + item_context
 
