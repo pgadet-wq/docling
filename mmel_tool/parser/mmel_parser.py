@@ -15,7 +15,7 @@ Extracts structured data from PC-12 MMEL documents including:
 import re
 import json
 import os
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict
 
@@ -41,6 +41,14 @@ class MmelItem:
     parentItemCode: Optional[str] = None
 
 
+@dataclass
+class ValidationWarning:
+    """Represents a validation warning."""
+    item_code: str
+    warning_type: str
+    message: str
+
+
 class MmelParser:
     """Parser for MMEL markdown documents."""
 
@@ -48,11 +56,51 @@ class MmelParser:
         """Initialize parser with input file path."""
         self.input_file = input_file
         self.items: List[MmelItem] = []
+        self.warnings: List[ValidationWarning] = []
+
+    def preprocess_content(self, content: str) -> str:
+        """Remove page markers, headers, and footers."""
+        lines = content.split('\n')
+        cleaned_lines = []
+
+        for line in lines:
+            stripped = line.strip()
+
+            # Skip page markers
+            if re.match(r'^##\s*Page\s+\d+', stripped, re.IGNORECASE):
+                continue
+            if re.match(r'^Page\s+\d+\s+of\s+\d+', stripped, re.IGNORECASE):
+                continue
+            if re.match(r'^Page:\s*\d+', stripped, re.IGNORECASE):
+                continue
+
+            # Skip common headers/footers
+            if stripped.startswith('Document Number:'):
+                continue
+            if stripped.startswith('Issue date:'):
+                continue
+            if 'EASA approved' in stripped:
+                continue
+            if stripped == 'ITEM':
+                continue
+            if stripped == '(continued)':
+                continue
+            if re.match(r'^Revision:\s*\d+', stripped):
+                continue
+            if re.match(r'^\d{4}-\d{2}-\d{2}$', stripped):  # Date only lines
+                continue
+
+            cleaned_lines.append(line)
+
+        return '\n'.join(cleaned_lines)
 
     def parse(self) -> List[Dict[str, Any]]:
         """Parse the MMEL markdown file and return structured data."""
         with open(self.input_file, 'r', encoding='utf-8') as f:
             content = f.read()
+
+        # Pre-process content
+        content = self.preprocess_content(content)
 
         # Current context
         current_ata_chapter = ""
@@ -72,7 +120,6 @@ class MmelParser:
         )
 
         # Sub-item pattern: XX-XX-XX[A-Z] with operation type and details
-        # Handles both single-line and multi-line formats
         sub_item_pattern = re.compile(
             r'^(\d{2}-\d{2}-\d{2}(?:-\d+)?[A-Z])\s+'  # Item code with letter
             r'(?:\(([A-Z/]+)\)\s*)?'  # Operation type
@@ -86,6 +133,9 @@ class MmelParser:
 
         # Condition pattern
         condition_pattern = re.compile(r'^\(([a-z])\)\s*(.+)$')
+
+        # Next item pattern to detect end of remarks
+        next_item_pattern = re.compile(r'^\d{2}-\d{2}-\d{2}')
 
         # Process line by line
         lines = content.split('\n')
@@ -143,9 +193,9 @@ class MmelParser:
                     current_item_title, current_note
                 )
 
-                # Collect conditions from following lines
+                # Collect conditions and full remarks from following lines
                 conditions = []
-                remarks_continuation = []
+                remarks_parts = [item.remarksText] if item.remarksText else []
                 j = i + 1
 
                 while j < total_lines:
@@ -155,6 +205,12 @@ class MmelParser:
                         j += 1
                         continue
 
+                    # Check if next item or section starts
+                    if next_item_pattern.match(next_line):
+                        break
+                    if next_line.startswith('ATA CHAPTER'):
+                        break
+
                     # Check for condition
                     cond_match = condition_pattern.match(next_line)
                     if cond_match:
@@ -163,13 +219,17 @@ class MmelParser:
                         k = j + 1
                         while k < total_lines:
                             cont_line = lines[k].strip()
-                            if not cont_line or condition_pattern.match(cont_line):
+                            if not cont_line:
+                                k += 1
+                                continue
+                            if condition_pattern.match(cont_line):
                                 break
-                            if re.match(r'^\d{2}-\d{2}-\d{2}', cont_line):
+                            if next_item_pattern.match(cont_line):
                                 break
-                            if cont_line in ['(continued)', 'ITEM'] or cont_line.startswith('ATA CHAPTER'):
+                            if cont_line.startswith('ATA CHAPTER'):
                                 break
-                            if cont_line.startswith('Document Number:') or cont_line.startswith('Page '):
+                            # Skip header remnants
+                            if cont_line.startswith('(1)') or cont_line.startswith('(2)'):
                                 k += 1
                                 continue
                             cond_text += ' ' + cont_line
@@ -178,31 +238,22 @@ class MmelParser:
                         j = k
                         continue
 
-                    # Check if next item starts
-                    if re.match(r'^\d{2}-\d{2}-\d{2}', next_line):
-                        break
-
-                    # Check for page headers to skip
-                    if (next_line.startswith('Document Number:') or
-                        next_line.startswith('Page ') or
-                        next_line.startswith('Issue date:') or
-                        next_line in ['ITEM', '(continued)'] or
-                        next_line.startswith('(1)') or next_line.startswith('(2)') or
-                        next_line.startswith('(3)') or next_line.startswith('(4)') or
-                        next_line.startswith('(5)')):
+                    # Skip header table remnants
+                    if next_line.startswith('(1)') or next_line.startswith('(2)'):
                         j += 1
                         continue
 
-                    if next_line.startswith('ATA CHAPTER'):
-                        break
-
                     # Otherwise, might be remarks continuation
-                    remarks_continuation.append(next_line)
+                    remarks_parts.append(next_line)
                     j += 1
 
                 item.conditions = conditions
-                if remarks_continuation and not item.remarksText.endswith('.'):
-                    item.remarksText += ' ' + ' '.join(remarks_continuation)
+
+                # Join remarks properly
+                full_remarks = ' '.join(remarks_parts).strip()
+                # Clean up double spaces
+                full_remarks = re.sub(r'\s+', ' ', full_remarks)
+                item.remarksText = full_remarks
 
                 self.items.append(item)
                 i = j
@@ -227,6 +278,9 @@ class MmelParser:
                             continue
 
             i += 1
+
+        # Run validation
+        self._validate_items()
 
         return [asdict(item) for item in self.items]
 
@@ -269,6 +323,47 @@ class MmelParser:
             parentItemCode=parent_code
         )
 
+    def _validate_items(self) -> None:
+        """Validate parsed items and generate warnings."""
+        truncation_patterns = [
+            (r'provided\s*$', 'ends with "provided"'),
+            (r'\bthat\s*$', 'ends with "that"'),
+            (r'\band\s*$', 'ends with "and"'),
+            (r'\bor\s*$', 'ends with "or"'),
+            (r'\bthe\s*$', 'ends with "the"'),
+            (r'\bis\s*$', 'ends with "is"'),
+            (r'\bare\s*$', 'ends with "are"'),
+            (r':\s*$', 'ends with ":"'),
+        ]
+
+        for item in self.items:
+            # Check for truncated remarks
+            remarks = item.remarksText.strip()
+            for pattern, msg in truncation_patterns:
+                if re.search(pattern, remarks, re.IGNORECASE):
+                    self.warnings.append(ValidationWarning(
+                        item_code=item.fullItemCode,
+                        warning_type='TRUNCATED_REMARKS',
+                        message=f'Remarks may be truncated: {msg}'
+                    ))
+                    break
+
+            # Check for page markers in remarks
+            if '## Page' in remarks or 'Page ' in remarks:
+                self.warnings.append(ValidationWarning(
+                    item_code=item.fullItemCode,
+                    warning_type='PAGE_MARKER_IN_REMARKS',
+                    message='Remarks contain page marker'
+                ))
+
+            # Check for empty operation types
+            if not item.operationTypes or item.operationTypes == ['']:
+                self.warnings.append(ValidationWarning(
+                    item_code=item.fullItemCode,
+                    warning_type='MISSING_OPERATION_TYPES',
+                    message='No operation types found'
+                ))
+
     def get_statistics(self) -> Dict[str, Any]:
         """Generate statistics about parsed items."""
         stats = {
@@ -306,6 +401,29 @@ class MmelParser:
 
         return stats
 
+    def get_validation_report(self) -> Dict[str, Any]:
+        """Generate validation report."""
+        report = {
+            'total_warnings': len(self.warnings),
+            'warnings_by_type': defaultdict(int),
+            'items_with_warnings': set(),
+            'warnings': []
+        }
+
+        for w in self.warnings:
+            report['warnings_by_type'][w.warning_type] += 1
+            report['items_with_warnings'].add(w.item_code)
+            report['warnings'].append({
+                'item_code': w.item_code,
+                'type': w.warning_type,
+                'message': w.message
+            })
+
+        report['warnings_by_type'] = dict(report['warnings_by_type'])
+        report['items_with_warnings'] = list(report['items_with_warnings'])
+
+        return report
+
 
 def main():
     """Main entry point."""
@@ -322,6 +440,7 @@ def main():
     parser = MmelParser(input_file)
     items = parser.parse()
     stats = parser.get_statistics()
+    validation = parser.get_validation_report()
 
     output_data = {
         'metadata': {
@@ -329,6 +448,7 @@ def main():
             'total_items': stats['total_items'],
         },
         'statistics': stats,
+        'validation': validation,
         'items': items
     }
 
@@ -359,6 +479,23 @@ def main():
     print("-" * 60)
     for interval, count in sorted(stats['items_by_rectification'].items()):
         print(f"  {interval}: {count}")
+
+    # Validation report
+    print("\n" + "=" * 60)
+    print("RAPPORT DE VALIDATION:")
+    print("=" * 60)
+    print(f"  Total avertissements: {validation['total_warnings']}")
+    print(f"  Items avec avertissements: {len(validation['items_with_warnings'])}")
+
+    if validation['warnings_by_type']:
+        print("\n  Par type:")
+        for wtype, count in validation['warnings_by_type'].items():
+            print(f"    {wtype}: {count}")
+
+    if validation['warnings'][:10]:
+        print("\n  Premiers avertissements:")
+        for w in validation['warnings'][:10]:
+            print(f"    [{w['item_code']}] {w['type']}: {w['message']}")
 
     print("\n" + "=" * 60)
     print("EXEMPLES D'ITEMS PARSÉS (5 premiers):")
