@@ -3,227 +3,696 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MEL/MMEL Audit Dashboard - PC-12</title>
-
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'navy': {
-                            600: '#2d4a6f',
-                            700: '#1e3a5f',
-                            800: '#152a45',
-                            900: '#0d1b2a',
-                            950: '#080f17',
-                        },
-                        'aviation': {
-                            blue: '#1e3a5f',
-                            orange: '#ff6b35',
-                            green: '#10b981',
-                            red: '#ef4444',
-                            yellow: '#f59e0b',
-                            cyan: '#06b6d4',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-
-    <!-- React -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-
-    <!-- Babel for JSX -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
+    <title>MoA_MEL - Audit MEL/MMEL Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-        * {
-            scrollbar-width: thin;
-            scrollbar-color: #3b5998 #152a45;
-        }
-
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: #152a45;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: #3b5998;
-            border-radius: 4px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: #4a69bd;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e0f2fe 100%);
+            min-height: 100vh;
+            color: #1e293b;
         }
 
-        .font-mono {
-            font-family: 'JetBrains Mono', monospace;
+        header {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1rem 1.5rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-left { display: flex; align-items: center; gap: 1rem; }
+        .logo {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 700;
+        }
+        .header-title h1 { font-size: 1.25rem; font-weight: 700; }
+        .header-title p { font-size: 0.875rem; color: #64748b; }
+
+        main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
         }
 
-        /* Gauge styles */
-        .gauge-container {
-            position: relative;
-            width: 180px;
-            height: 90px;
-            overflow: hidden;
+        /* Zone de chargement */
+        .upload-zone {
+            background: white;
+            border: 2px dashed #3b82f6;
+            border-radius: 1rem;
+            padding: 3rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            cursor: pointer;
+            transition: all 0.2s;
         }
+        .upload-zone:hover {
+            background: #eff6ff;
+            border-color: #2563eb;
+        }
+        .upload-zone.loaded {
+            border-style: solid;
+            border-color: #22c55e;
+            background: #f0fdf4;
+        }
+        .upload-zone h2 { color: #3b82f6; margin-bottom: 0.5rem; }
+        .upload-zone p { color: #64748b; margin-bottom: 1rem; }
+        .upload-zone.loaded h2 { color: #22c55e; }
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 0.25rem;
+        }
+        .btn:hover { background: #2563eb; }
+        .btn-secondary { background: #64748b; }
+        .btn-secondary:hover { background: #475569; }
+        #fileInput { display: none; }
 
-        .gauge-bg {
+        /* Dashboard caché par défaut */
+        #dashboard { display: none; }
+        #dashboard.visible { display: block; }
+
+        .doc-info {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #e2e8f0;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .doc-item { display: flex; align-items: center; gap: 0.5rem; }
+        .doc-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .doc-dot.mel { background: #3b82f6; }
+        .doc-dot.mmel { background: #22c55e; }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        @media (max-width: 1200px) { .summary-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 768px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+
+        .summary-card {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            border: 1px solid #e2e8f0;
+        }
+        .summary-card .label { font-size: 0.875rem; color: #64748b; }
+        .summary-card .value { font-size: 2rem; font-weight: 700; margin-top: 0.25rem; }
+        .summary-card .subtitle { font-size: 0.75rem; color: #94a3b8; margin-top: 0.25rem; }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+
+        .chart-card {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            border: 1px solid #e2e8f0;
+        }
+        .chart-card h3 { margin-bottom: 1rem; }
+
+        .bar-chart { display: flex; flex-direction: column; gap: 0.75rem; }
+        .bar-item { display: flex; align-items: center; gap: 0.75rem; }
+        .bar-label { width: 120px; font-size: 0.875rem; }
+        .bar-container { flex: 1; height: 28px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; min-width: 30px; }
+        .bar-value { font-size: 0.75rem; font-weight: 600; color: white; }
+
+        .donut-container { display: flex; align-items: center; gap: 2rem; flex-wrap: wrap; }
+        .donut-chart { position: relative; width: 180px; height: 180px; }
+        .donut-center {
             position: absolute;
-            width: 180px;
-            height: 180px;
-            border-radius: 50%;
-            background: conic-gradient(
-                from 180deg,
-                #ef4444 0deg,
-                #f59e0b 60deg,
-                #fbbf24 90deg,
-                #10b981 150deg,
-                #059669 180deg
-            );
-            clip-path: polygon(0 0, 100% 0, 100% 50%, 0 50%);
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        .donut-center .value { font-size: 2rem; font-weight: 700; }
+        .donut-center .label { font-size: 0.75rem; color: #64748b; }
+        .legend { display: flex; flex-direction: column; gap: 0.5rem; }
+        .legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+        .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+
+        .filters {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            border: 1px solid #e2e8f0;
+            flex-wrap: wrap;
+        }
+        .search-box {
+            flex: 1;
+            min-width: 200px;
+            display: flex;
+            align-items: center;
+            background: #f8fafc;
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+        }
+        .search-box input {
+            flex: 1;
+            border: none;
+            background: transparent;
+            outline: none;
+            margin-left: 0.5rem;
+        }
+        select {
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid #e2e8f0;
+            background: white;
         }
 
-        .gauge-inner {
-            position: absolute;
-            top: 18px;
-            left: 18px;
-            width: 144px;
-            height: 144px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #152a45 0%, #0d1b2a 100%);
+        .table-container {
+            background: white;
+            border-radius: 0.75rem;
+            border: 1px solid #e2e8f0;
+            overflow-x: auto;
+        }
+        table { width: 100%; border-collapse: collapse; min-width: 800px; }
+        thead { background: #f8fafc; }
+        th {
+            padding: 0.875rem 1rem;
+            text-align: left;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #475569;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        th.center { text-align: center; }
+        th.mel { color: #3b82f6; }
+        th.mmel { color: #22c55e; }
+
+        tbody tr { border-bottom: 1px solid #f1f5f9; cursor: pointer; }
+        tbody tr:hover { background: #f8fafc; }
+        td { padding: 0.75rem 1rem; font-size: 0.875rem; }
+        td.center { text-align: center; }
+        td.mono { font-family: 'JetBrains Mono', monospace; }
+
+        .category { font-weight: 700; font-size: 1.1rem; }
+        .category.mismatch { color: #dc2626; }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .badge-compliant { background: #dcfce7; color: #16a34a; }
+        .badge-more { background: #dbeafe; color: #2563eb; }
+        .badge-less { background: #fee2e2; color: #dc2626; }
+        .badge-missing-mel { background: #ffedd5; color: #ea580c; }
+        .badge-missing-mmel { background: #f3f4f6; color: #6b7280; }
+        .badge-mismatch { background: #ede9fe; color: #7c3aed; }
+        .badge-deviation { background: #cffafe; color: #0891b2; }
+
+        .severity {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+        .severity-critical { background: #fee2e2; color: #dc2626; }
+        .severity-high { background: #ffedd5; color: #ea580c; }
+        .severity-medium { background: #fef3c7; color: #d97706; }
+        .severity-warning { background: #fef9c3; color: #ca8a04; }
+        .severity-info { background: #dcfce7; color: #16a34a; }
+
+        .details-row { display: none; background: #f8fafc; }
+        .details-row.show { display: table-row; }
+        .details-content { padding: 1.5rem; }
+        .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        @media (max-width: 768px) { .details-grid { grid-template-columns: 1fr; } }
+        .details-section h4 { font-size: 0.875rem; margin-bottom: 0.75rem; }
+        .details-section.mel h4 { color: #3b82f6; }
+        .details-section.mmel h4 { color: #22c55e; }
+        .details-box {
+            background: white;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        .details-box.mel { border: 1px solid #bfdbfe; }
+        .details-box.mmel { border: 1px solid #bbf7d0; }
+        .details-box .lbl { font-size: 0.7rem; color: #64748b; }
+        .details-box .val { font-weight: 500; margin-top: 0.25rem; }
+        .details-box .val.big { font-size: 1.5rem; font-weight: 700; }
+
+        .alert {
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+        }
+        .alert-critical { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+        .alert-warning { background: #fef9c3; color: #ca8a04; border: 1px solid #fde047; }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: #64748b;
+            font-size: 0.875rem;
         }
 
-        .gauge-needle {
-            position: absolute;
-            bottom: 0;
-            left: 50%;
-            transform-origin: bottom center;
-            width: 3px;
-            height: 60px;
-            background: linear-gradient(to top, #ff6b35, #fbbf24);
-            border-radius: 2px;
-            margin-left: -1.5px;
-            transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
-            box-shadow: 0 0 10px rgba(255, 107, 53, 0.5);
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding: 1rem;
         }
-
-        .gauge-center {
-            position: absolute;
-            bottom: -5px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 14px;
-            height: 14px;
-            background: #ff6b35;
-            border-radius: 50%;
-            box-shadow: 0 0 10px rgba(255, 107, 53, 0.5);
+        .pagination button {
+            padding: 0.5rem 1rem;
+            border: 1px solid #e2e8f0;
+            background: white;
+            border-radius: 0.375rem;
+            cursor: pointer;
         }
-
-        /* Chat styles */
-        .chat-message {
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .typing-indicator span {
-            animation: bounce 1.4s infinite ease-in-out both;
-        }
-
-        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
-        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
-
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1); }
-        }
-
-        /* Tab transition */
-        .tab-content {
-            animation: slideIn 0.3s ease-out;
-        }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(20px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-
-        /* Card hover effects */
-        .card-hover {
-            transition: all 0.2s ease;
-        }
-
-        .card-hover:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.3);
-        }
-
-        /* Modal backdrop */
-        .modal-backdrop {
-            backdrop-filter: blur(8px);
-        }
-
-        /* Progress bar animation */
-        .progress-bar {
-            background: linear-gradient(90deg, #10b981, #06b6d4, #10b981);
-            background-size: 200% 100%;
-            animation: progress 2s ease-in-out infinite;
-        }
-
-        @keyframes progress {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-        }
-
-        /* Pulse animation for status indicators */
-        .pulse-green {
-            animation: pulseGreen 2s infinite;
-        }
-
-        @keyframes pulseGreen {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-            50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-        }
-
-        /* Glass effect */
-        .glass {
-            background: rgba(21, 42, 69, 0.7);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
+        .pagination button:hover { background: #f1f5f9; }
+        .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .pagination span { color: #64748b; }
     </style>
 </head>
-<body class="bg-navy-950 text-gray-100 min-h-screen">
-    <div id="root"></div>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="header-left">
+                <div class="logo">MoA_MEL</div>
+                <div class="header-title">
+                    <h1>Audit MEL/MMEL</h1>
+                    <p>Rapport d'écarts</p>
+                </div>
+            </div>
+        </div>
+    </header>
 
-    <script type="text/babel" src="src/App.jsx"></script>
-    <script type="text/babel">
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+    <main>
+        <!-- Zone de chargement -->
+        <div class="upload-zone" id="uploadZone">
+            <h2>📂 Charger les résultats d'audit</h2>
+            <p>Cliquez ou déposez un fichier JSON (audit_result_*.json)</p>
+            <input type="file" id="fileInput" accept=".json">
+            <button class="btn" onclick="document.getElementById('fileInput').click()">
+                📁 Sélectionner un fichier JSON
+            </button>
+        </div>
+
+        <!-- Dashboard (caché par défaut) -->
+        <div id="dashboard">
+            <div class="doc-info">
+                <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
+                    <div class="doc-item">
+                        <div class="doc-dot mel"></div>
+                        <span>MEL:</span>
+                        <strong id="melDoc">-</strong>
+                    </div>
+                    <div class="doc-item">
+                        <div class="doc-dot mmel"></div>
+                        <span>MMEL:</span>
+                        <strong id="mmelDoc">-</strong>
+                    </div>
+                </div>
+                <div id="timestamp">-</div>
+            </div>
+
+            <div class="summary-grid" id="summaryCards"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h3>Distribution des Verdicts</h3>
+                    <div class="donut-container">
+                        <div class="donut-chart" id="donutChart"></div>
+                        <div class="legend" id="donutLegend"></div>
+                    </div>
+                </div>
+                <div class="chart-card">
+                    <h3>Distribution par Sévérité</h3>
+                    <div class="bar-chart" id="barChart"></div>
+                </div>
+            </div>
+
+            <div class="filters">
+                <div class="search-box">
+                    <span>🔍</span>
+                    <input type="text" id="searchInput" placeholder="Rechercher ATA, Item, Description...">
+                </div>
+                <select id="severityFilter">
+                    <option value="all">Toutes Sévérités</option>
+                    <option value="critical">🔴 Critique</option>
+                    <option value="high">🟠 Élevé</option>
+                    <option value="medium">🟡 Moyen</option>
+                    <option value="warning">⚠️ Attention</option>
+                    <option value="info">ℹ️ Info</option>
+                </select>
+                <select id="verdictFilter">
+                    <option value="all">Tous Verdicts</option>
+                    <option value="LESS_RESTRICTIVE">❌ Moins Restrictif</option>
+                    <option value="COMPLIANT">✅ Conforme</option>
+                    <option value="MORE_RESTRICTIVE">↑ Plus Restrictif</option>
+                    <option value="MISSING_IN_MEL">⚠ Absent MEL</option>
+                    <option value="MISSING_IN_MMEL">○ Absent MMEL</option>
+                </select>
+                <span id="itemCount">-</span>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ATA</th>
+                            <th>Item</th>
+                            <th>Description</th>
+                            <th class="center mel">MEL</th>
+                            <th class="center mmel">MMEL</th>
+                            <th>Verdict</th>
+                            <th>Sévérité</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+                <div class="pagination" id="pagination"></div>
+            </div>
+        </div>
+
+        <footer>
+            <p>MoA_MEL Audit PoC — WingMate™ by OPS Insight</p>
+            <p>Powered by Mistral AI 🇫🇷 • Infrastructure Scaleway 🇪🇺</p>
+        </footer>
+    </main>
+
+    <script>
+        let auditData = null;
+        let filteredData = [];
+        let currentPage = 1;
+        const itemsPerPage = 50;
+
+        const verdictConfig = {
+            COMPLIANT: { label: 'Conforme', icon: '✓', cls: 'badge-compliant' },
+            MORE_RESTRICTIVE: { label: 'Plus Restrictif', icon: '↑', cls: 'badge-more' },
+            LESS_RESTRICTIVE: { label: 'Moins Restrictif', icon: '↓', cls: 'badge-less' },
+            MISSING_IN_MEL: { label: 'Absent MEL', icon: '⚠', cls: 'badge-missing-mel' },
+            MISSING_IN_MMEL: { label: 'Absent MMEL', icon: '○', cls: 'badge-missing-mmel' },
+            CATEGORY_MISMATCH: { label: 'Écart Cat.', icon: '≠', cls: 'badge-mismatch' },
+            REMARKS_DEVIATION: { label: 'Écart Rem.', icon: '~', cls: 'badge-deviation' }
+        };
+
+        const severityConfig = {
+            critical: { label: 'Critique', cls: 'severity-critical' },
+            high: { label: 'Élevé', cls: 'severity-high' },
+            medium: { label: 'Moyen', cls: 'severity-medium' },
+            warning: { label: 'Attention', cls: 'severity-warning' },
+            info: { label: 'Info', cls: 'severity-info' }
+        };
+
+        // File input handler
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        loadData(data, file.name);
+                    } catch (err) {
+                        alert('Erreur: Fichier JSON invalide\n' + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        // Drag and drop
+        const uploadZone = document.getElementById('uploadZone');
+        uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.style.borderColor = '#2563eb'; });
+        uploadZone.addEventListener('dragleave', () => { uploadZone.style.borderColor = '#3b82f6'; });
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.style.borderColor = '#3b82f6';
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith('.json')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        loadData(JSON.parse(e.target.result), file.name);
+                    } catch (err) {
+                        alert('Erreur: ' + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        function loadData(data, filename) {
+            auditData = normalizeData(data);
+            if (!auditData.comparisons || auditData.comparisons.length === 0) {
+                alert('Aucune donnée de comparaison trouvée dans le fichier');
+                return;
+            }
+
+            uploadZone.classList.add('loaded');
+            uploadZone.innerHTML = '<h2>✅ Fichier chargé</h2><p>' + filename + ' (' + auditData.comparisons.length + ' items)</p><button class="btn btn-secondary" onclick="location.reload()">Charger un autre fichier</button>';
+
+            document.getElementById('dashboard').classList.add('visible');
+            renderDashboard();
+        }
+
+        function normalizeData(data) {
+            const comparisons = data.comparisons || [];
+            let stats = { compliant: 0, more: 0, less: 0, missMel: 0, missMmel: 0, other: 0 };
+            let sev = { critical: 0, high: 0, medium: 0, warning: 0, info: 0 };
+
+            comparisons.forEach(c => {
+                if (c.verdict === 'COMPLIANT') stats.compliant++;
+                else if (c.verdict === 'MORE_RESTRICTIVE') stats.more++;
+                else if (c.verdict === 'LESS_RESTRICTIVE') stats.less++;
+                else if (c.verdict === 'MISSING_IN_MEL') stats.missMel++;
+                else if (c.verdict === 'MISSING_IN_MMEL') stats.missMmel++;
+                else stats.other++;
+
+                if (c.severity === 'critical') sev.critical++;
+                else if (c.severity === 'high') sev.high++;
+                else if (c.severity === 'medium') sev.medium++;
+                else if (c.severity === 'warning') sev.warning++;
+                else sev.info++;
+            });
+
+            const total = comparisons.length;
+            const compliantTotal = stats.compliant + stats.more;
+            const rate = total > 0 ? Math.round((compliantTotal / total) * 10000) / 100 : 0;
+
+            return {
+                mel_document: data.mel_document || 'MEL',
+                mmel_document: data.mmel_document || 'MMEL',
+                audit_timestamp: data.audit_timestamp || new Date().toISOString(),
+                total: total,
+                compliant: stats.compliant,
+                more_restrictive: stats.more,
+                less_restrictive: stats.less,
+                missing_in_mel: stats.missMel,
+                missing_in_mmel: stats.missMmel,
+                other: stats.other,
+                hitl_required: comparisons.filter(c => c.requires_hitl_review || c.hitl_reason).length,
+                compliance_rate: rate,
+                severity: sev,
+                comparisons: comparisons
+            };
+        }
+
+        function renderDashboard() {
+            document.getElementById('melDoc').textContent = auditData.mel_document;
+            document.getElementById('mmelDoc').textContent = auditData.mmel_document;
+            const ts = new Date(auditData.audit_timestamp);
+            document.getElementById('timestamp').textContent = '🕐 ' + ts.toLocaleDateString('fr-FR') + ' ' + ts.toLocaleTimeString('fr-FR');
+
+            renderSummaryCards();
+            renderDonutChart();
+            renderBarChart();
+
+            filteredData = auditData.comparisons;
+            currentPage = 1;
+            renderTable();
+            setupFilters();
+        }
+
+        function renderSummaryCards() {
+            const cards = [
+                { label: 'Items Analysés', value: auditData.total, color: '#374151' },
+                { label: 'Taux Conformité', value: auditData.compliance_rate + '%', sub: (auditData.compliant + auditData.more_restrictive) + ' OK', color: auditData.compliance_rate > 80 ? '#16a34a' : '#dc2626' },
+                { label: 'Écarts Critiques', value: auditData.severity.critical, sub: 'Action immédiate', color: '#dc2626' },
+                { label: 'Absents MEL', value: auditData.missing_in_mel, sub: 'À vérifier', color: '#ea580c' },
+                { label: 'HITL Requis', value: auditData.hitl_required, sub: 'Validation manuelle', color: '#7c3aed' }
+            ];
+            document.getElementById('summaryCards').innerHTML = cards.map(c =>
+                '<div class="summary-card"><div class="label">' + c.label + '</div><div class="value" style="color:' + c.color + '">' + c.value + '</div>' + (c.sub ? '<div class="subtitle">' + c.sub + '</div>' : '') + '</div>'
+            ).join('');
+        }
+
+        function renderDonutChart() {
+            const data = [
+                { label: 'Conforme', value: auditData.compliant, color: '#16a34a' },
+                { label: 'Plus Restrictif', value: auditData.more_restrictive, color: '#2563eb' },
+                { label: 'Moins Restrictif', value: auditData.less_restrictive, color: '#dc2626' },
+                { label: 'Absent MEL', value: auditData.missing_in_mel, color: '#ea580c' },
+                { label: 'Absent MMEL', value: auditData.missing_in_mmel, color: '#6b7280' },
+                { label: 'Autres', value: auditData.other, color: '#7c3aed' }
+            ].filter(d => d.value > 0);
+
+            const total = data.reduce((s, d) => s + d.value, 0);
+            const size = 180, sw = 30, r = (size - sw) / 2, circ = 2 * Math.PI * r;
+
+            let offset = 0, segments = '';
+            data.forEach(d => {
+                const pct = d.value / total;
+                segments += '<circle cx="' + (size/2) + '" cy="' + (size/2) + '" r="' + r + '" fill="none" stroke="' + d.color + '" stroke-width="' + sw + '" stroke-dasharray="' + (circ * pct) + ' ' + (circ * (1 - pct)) + '" stroke-dashoffset="' + (-offset) + '"/>';
+                offset += circ * pct;
+            });
+
+            document.getElementById('donutChart').innerHTML = '<svg width="' + size + '" height="' + size + '" style="transform:rotate(-90deg)">' + segments + '</svg><div class="donut-center"><div class="value">' + total + '</div><div class="label">Total</div></div>';
+            document.getElementById('donutLegend').innerHTML = data.map(d => '<div class="legend-item"><div class="legend-dot" style="background:' + d.color + '"></div>' + d.label + ': ' + d.value + '</div>').join('');
+        }
+
+        function renderBarChart() {
+            const data = [
+                { label: '🔴 Critique', value: auditData.severity.critical, color: '#dc2626' },
+                { label: '🟠 Élevé', value: auditData.severity.high, color: '#ea580c' },
+                { label: '🟡 Moyen', value: auditData.severity.medium, color: '#d97706' },
+                { label: '⚠️ Attention', value: auditData.severity.warning, color: '#ca8a04' },
+                { label: 'ℹ️ Info', value: auditData.severity.info, color: '#16a34a' }
+            ];
+            const max = Math.max(...data.map(d => d.value)) || 1;
+            document.getElementById('barChart').innerHTML = data.map(d =>
+                '<div class="bar-item"><div class="bar-label">' + d.label + '</div><div class="bar-container"><div class="bar-fill" style="width:' + ((d.value/max)*100) + '%;background:' + d.color + '"><span class="bar-value">' + d.value + '</span></div></div></div>'
+            ).join('');
+        }
+
+        function renderTable() {
+            const sevOrder = { critical: 0, high: 1, medium: 2, warning: 3, info: 4 };
+            const sorted = [...filteredData].sort((a, b) => (sevOrder[a.severity] || 5) - (sevOrder[b.severity] || 5));
+
+            const start = (currentPage - 1) * itemsPerPage;
+            const pageData = sorted.slice(start, start + itemsPerPage);
+            const totalPages = Math.ceil(sorted.length / itemsPerPage);
+
+            let html = '';
+            pageData.forEach((item, i) => {
+                const idx = start + i;
+                const v = verdictConfig[item.verdict] || { label: item.verdict || '-', icon: '?', cls: '' };
+                const s = severityConfig[item.severity] || severityConfig.info;
+                const mismatch = item.mel_category && item.mmel_category && item.mel_category !== item.mmel_category;
+
+                html += '<tr onclick="toggleDetails(' + idx + ')">';
+                html += '<td class="mono">' + (item.ata_chapter || '-') + '</td>';
+                html += '<td class="mono">' + (item.item_number || '-') + '</td>';
+                html += '<td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (item.item_description || '') + '">' + (item.item_description || '-') + '</td>';
+                html += '<td class="center"><span class="category' + (mismatch ? ' mismatch' : '') + '">' + (item.mel_category || '-') + '</span></td>';
+                html += '<td class="center"><span class="category">' + (item.mmel_category || '-') + '</span></td>';
+                html += '<td><span class="badge ' + v.cls + '">' + v.icon + ' ' + v.label + '</span></td>';
+                html += '<td><span class="severity ' + s.cls + '">' + s.label + '</span></td>';
+                html += '</tr>';
+
+                html += '<tr class="details-row" id="details-' + idx + '"><td colspan="7"><div class="details-content">';
+                html += '<div class="details-grid">';
+                html += '<div class="details-section mel"><h4>📘 MEL</h4>';
+                html += '<div class="details-box mel"><div class="lbl">Catégorie</div><div class="val big" style="color:#3b82f6">' + (item.mel_category || '-') + '</div></div>';
+                html += '<div class="details-box mel"><div class="lbl">Remarques</div><div class="val">' + (item.mel_remarks || 'Aucune') + '</div></div></div>';
+                html += '<div class="details-section mmel"><h4>📗 MMEL (Référence)</h4>';
+                html += '<div class="details-box mmel"><div class="lbl">Catégorie</div><div class="val big" style="color:#22c55e">' + (item.mmel_category || '-') + '</div></div>';
+                html += '<div class="details-box mmel"><div class="lbl">Remarques</div><div class="val">' + (item.mmel_remarks || 'Aucune') + '</div></div></div>';
+                html += '</div>';
+                if (item.hitl_reason) {
+                    html += '<div class="alert ' + (item.severity === 'critical' ? 'alert-critical' : 'alert-warning') + '">⚠️ ' + item.hitl_reason + '</div>';
+                }
+                html += '</div></td></tr>';
+            });
+
+            document.getElementById('tableBody').innerHTML = html;
+            document.getElementById('itemCount').textContent = filteredData.length + ' / ' + auditData.comparisons.length + ' items';
+
+            // Pagination
+            let pagHtml = '<button onclick="changePage(-1)" ' + (currentPage === 1 ? 'disabled' : '') + '>← Précédent</button>';
+            pagHtml += '<span>Page ' + currentPage + ' / ' + totalPages + '</span>';
+            pagHtml += '<button onclick="changePage(1)" ' + (currentPage >= totalPages ? 'disabled' : '') + '>Suivant →</button>';
+            document.getElementById('pagination').innerHTML = pagHtml;
+        }
+
+        function toggleDetails(idx) {
+            const row = document.getElementById('details-' + idx);
+            row.classList.toggle('show');
+        }
+
+        function changePage(delta) {
+            currentPage += delta;
+            renderTable();
+            document.querySelector('.table-container').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function setupFilters() {
+            const search = document.getElementById('searchInput');
+            const sevFilter = document.getElementById('severityFilter');
+            const verdFilter = document.getElementById('verdictFilter');
+
+            function apply() {
+                const term = search.value.toLowerCase();
+                const sev = sevFilter.value;
+                const verd = verdFilter.value;
+
+                filteredData = auditData.comparisons.filter(item => {
+                    const matchSearch = !term ||
+                        (item.ata_chapter || '').toLowerCase().includes(term) ||
+                        (item.item_number || '').toLowerCase().includes(term) ||
+                        (item.item_description || '').toLowerCase().includes(term);
+                    const matchSev = sev === 'all' || item.severity === sev;
+                    const matchVerd = verd === 'all' || item.verdict === verd;
+                    return matchSearch && matchSev && matchVerd;
+                });
+
+                currentPage = 1;
+                renderTable();
+            }
+
+            search.addEventListener('input', apply);
+            sevFilter.addEventListener('change', apply);
+            verdFilter.addEventListener('change', apply);
+        }
     </script>
 </body>
 </html>

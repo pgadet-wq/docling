@@ -274,6 +274,94 @@ class MelMmelComparator:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
 
+    def _get_severity(self, status: str, mel_item: Optional[Dict], mmel_item: Optional[Dict]) -> str:
+        """Determine severity based on status and item data."""
+        if status == ComplianceStatus.NON_COMPLIANT.value:
+            # Check if it's a critical interval mismatch (A vs D)
+            mel_int = (mel_item or {}).get('category') or (mel_item or {}).get('rectificationInterval')
+            mmel_int = (mmel_item or {}).get('rectificationInterval') or (mmel_item or {}).get('category')
+            mel_rank = INTERVAL_HIERARCHY.get(mel_int, 99)
+            mmel_rank = INTERVAL_HIERARCHY.get(mmel_int, 99)
+            if mmel_rank <= 2 and mel_rank >= 4:  # MMEL is A or B, MEL is D
+                return "critical"
+            elif mel_rank - mmel_rank >= 2:  # 2+ category difference
+                return "high"
+            return "medium"
+        elif status == ComplianceStatus.MISSING_IN_MEL.value:
+            # Check MMEL interval for severity
+            mmel_int = (mmel_item or {}).get('rectificationInterval') or (mmel_item or {}).get('category')
+            if mmel_int == 'A':
+                return "critical"
+            elif mmel_int == 'B':
+                return "high"
+            elif mmel_int == 'C':
+                return "medium"
+            return "warning"
+        elif status == ComplianceStatus.MORE_RESTRICTIVE.value:
+            return "info"
+        elif status == ComplianceStatus.EXTRA_IN_MEL.value:
+            return "warning"
+        return "info"
+
+    def _needs_hitl_review(self, status: str, mel_item: Optional[Dict], mmel_item: Optional[Dict]) -> tuple[bool, Optional[str]]:
+        """Determine if human-in-the-loop review is needed."""
+        if status == ComplianceStatus.NON_COMPLIANT.value:
+            return True, "Écart de catégorie détecté - vérification manuelle requise"
+        elif status == ComplianceStatus.MISSING_IN_MEL.value:
+            mmel_int = (mmel_item or {}).get('rectificationInterval')
+            if mmel_int in ['A', 'B']:
+                return True, f"Item MMEL critique (Cat. {mmel_int}) absent de la MEL"
+        return False, None
+
+    def generate_dashboard_json(self, output_path: str) -> None:
+        """Generate JSON report in dashboard v2 format."""
+        mel_meta = self.mel_data.get('metadata', {})
+        mmel_meta = self.mmel_data.get('metadata', {})
+
+        comparisons = []
+        for r in self.results:
+            mel_item = r.mel_data
+            mmel_item = r.mmel_data
+
+            # Map status to verdict (NON_COMPLIANT -> LESS_RESTRICTIVE)
+            verdict = r.status
+            if verdict == ComplianceStatus.NON_COMPLIANT.value:
+                verdict = "LESS_RESTRICTIVE"
+
+            # Get severity
+            severity = self._get_severity(r.status, mel_item, mmel_item)
+
+            # Check HITL
+            needs_hitl, hitl_reason = self._needs_hitl_review(r.status, mel_item, mmel_item)
+
+            # Build comparison object
+            comparison = {
+                "ata_chapter": (mel_item or mmel_item or {}).get('ataChapter', ''),
+                "item_number": r.item_code,
+                "item_description": (mel_item or mmel_item or {}).get('itemTitle', ''),
+                "mel_category": (mel_item or {}).get('category') or (mel_item or {}).get('rectificationInterval') or '-',
+                "mmel_category": (mmel_item or {}).get('rectificationInterval') or (mmel_item or {}).get('category') or '-',
+                "mel_remarks": (mel_item or {}).get('remarksText', ''),
+                "mmel_remarks": (mmel_item or {}).get('remarksText', ''),
+                "verdict": verdict,
+                "severity": severity,
+                "requires_hitl_review": needs_hitl,
+                "hitl_reason": hitl_reason,
+                "issues": r.issues,
+            }
+            comparisons.append(comparison)
+
+        report = {
+            "mel_document": f"MEL PC-12 {mel_meta.get('aircraft_registration', 'N/A')}",
+            "mmel_document": "MMEL PC-12 (Pilatus)",
+            "audit_timestamp": datetime.now().isoformat(),
+            "comparisons": comparisons
+        }
+
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2, ensure_ascii=False)
+
     def generate_non_compliant_json(self, output_path: str) -> None:
         """Generate JSON with only non-compliant items."""
         non_compliant = self.get_non_compliant_items()
@@ -464,6 +552,7 @@ def main():
 
     # Generate reports
     comparator.generate_json_report("output/audit/audit_report.json")
+    comparator.generate_dashboard_json("output/audit/audit_dashboard.json")
     comparator.generate_markdown_report("output/audit/audit_report.md")
     comparator.generate_non_compliant_json("output/audit/non_compliant_items.json")
 
@@ -473,6 +562,7 @@ def main():
     print("=" * 70)
     print("RAPPORTS GÉNÉRÉS:")
     print("  - output/audit/audit_report.json")
+    print("  - output/audit/audit_dashboard.json  (format dashboard v2)")
     print("  - output/audit/audit_report.md")
     print("  - output/audit/non_compliant_items.json")
     print("=" * 70)
