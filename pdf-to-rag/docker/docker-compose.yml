@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # CPU-only variant (default)
+  pdf-to-rag-cpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: cpu
+    container_name: pdf-to-rag-cpu
+    ports:
+      - "8000:8000"
+    environment:
+      - USE_GPU=false
+      - MAX_FILE_SIZE_MB=100
+      - STORAGE_PATH=/app/storage
+      - LOG_LEVEL=INFO
+    volumes:
+      - pdf-storage:/app/storage
+      - ../backend/app:/app/app:ro  # Mount for development (remove in prod)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+
+  # GPU variant (for Scaleway GPU instances)
+  pdf-to-rag-gpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: gpu
+    container_name: pdf-to-rag-gpu
+    ports:
+      - "8000:8000"
+    environment:
+      - USE_GPU=true
+      - MAX_FILE_SIZE_MB=100
+      - STORAGE_PATH=/app/storage
+      - LOG_LEVEL=INFO
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - pdf-storage:/app/storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 16G
+    profiles:
+      - gpu  # Only start with: docker-compose --profile gpu up pdf-to-rag-gpu
+
+volumes:
+  pdf-storage:
+    driver: local

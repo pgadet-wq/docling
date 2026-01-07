@@ -1,0 +1,35 @@
+# PDF-to-RAG Backend Dependencies
+# ================================
+
+# Core Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# PDF Processing
+docling>=2.0.0
+docling-core>=2.0.0
+
+# Logging
+loguru>=0.7.2
+
+# HTTP Client (for health checks)
+httpx>=0.26.0
+
+# File handling
+python-multipart>=0.0.6
+aiofiles>=23.2.1
+
+# Development & Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+
+# Optional: GPU Support (install separately if needed)
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# Optional: OCR backends
+# easyocr>=1.7.0
+# pytesseract>=0.3.10
