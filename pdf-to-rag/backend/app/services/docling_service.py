@@ -23,7 +23,7 @@ from app.models.document import (
 )
 
 # Docling imports
-from docling.datamodel.base_models import InputFormat
+from docling.datamodel.base_models import DocumentStream, InputFormat
 from docling.datamodel.pipeline_options import (
     EasyOcrOptions,
     OcrMacOptions,
@@ -161,8 +161,11 @@ class DoclingService:
         )
 
         try:
-            # Convert PDF using Docling
-            source = BytesIO(file_bytes)
+            # Convert PDF using Docling with DocumentStream
+            source = DocumentStream(
+                name=filename,
+                stream=BytesIO(file_bytes),
+            )
             result = self.converter.convert(source, raises_on_error=True)
             docling_doc = result.document
 
