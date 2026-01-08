@@ -1,0 +1,88 @@
+# IOSA Document Parser - Docker Image
+# =====================================
+# Multi-stage build for efficient GPU-enabled deployment
+
+# Stage 1: Builder
+FROM python:3.11-slim as builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install dependencies
+COPY pyproject.toml ./
+COPY deploy/requirements-iosa.txt ./
+
+# Create virtual environment and install dependencies
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements-iosa.txt
+
+# Stage 2: Runtime with CUDA
+FROM nvidia/cuda:12.1-runtime-ubuntu22.04 as runtime
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    PATH="/opt/venv/bin:$PATH" \
+    TRANSFORMERS_CACHE=/app/cache/transformers \
+    HF_HOME=/app/cache/huggingface \
+    TORCH_HOME=/app/cache/torch
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    libgomp1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgl1-mesa-glx \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-fra \
+    tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd -m -u 1000 iosa
+
+# Create directories
+WORKDIR /app
+RUN mkdir -p /app/cache /app/data /app/output && \
+    chown -R iosa:iosa /app
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Copy application code
+COPY --chown=iosa:iosa docling/ /app/docling/
+COPY --chown=iosa:iosa pyproject.toml /app/
+
+# Install the package in editable mode
+RUN pip install -e .
+
+# Switch to non-root user
+USER iosa
+
+# Pre-download models (optional, comment out for smaller image)
+# RUN python -c "from docling.iosa import IOSAConfig; print('Models ready')"
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default command
+CMD ["python", "-m", "uvicorn", "docling.iosa.api:app", "--host", "0.0.0.0", "--port", "8000"]

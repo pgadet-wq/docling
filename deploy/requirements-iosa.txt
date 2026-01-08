@@ -1,0 +1,44 @@
+# IOSA Parser - Python Dependencies
+# ===================================
+# Install with: pip install -r requirements-iosa.txt
+
+# Core Docling
+docling>=2.66.0
+
+# FastAPI & Server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+httpx>=0.25.0
+
+# VLM Support (Transformers)
+transformers>=4.46.0
+accelerate>=1.2.1
+torch>=2.0.0
+
+# vLLM for GPU inference (Linux only)
+vllm>=0.10.0; sys_platform == "linux"
+
+# OCR
+rapidocr>=3.3
+# tesserocr>=2.7.1  # Optional: for Tesseract
+
+# Additional utilities
+pydantic>=2.0.0
+pydantic-settings>=2.3.0
+pillow>=10.0.0
+numpy>=1.24.0
+tqdm>=4.65.0
+
+# Markdown processing
+marko>=2.1.2
+
+# HTTP client
+requests>=2.32.2
+
+# Metrics & Monitoring (optional)
+prometheus-client>=0.17.0
+
+# Development (optional)
+pytest>=8.0.0
+pytest-asyncio>=0.21.0
